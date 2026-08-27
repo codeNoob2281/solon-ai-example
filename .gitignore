@@ -1,0 +1,22 @@
+# 环境变量（包含密钥等敏感信息，不提交）
+.env
+
+# Maven 构建输出
+target/
+mvnw
+mvnw.cmd
+.mvn/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# 日志
+*.log
+log/
+
+# 操作系统
+.DS_Store
+Thumbs.db

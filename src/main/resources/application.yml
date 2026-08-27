@@ -1,0 +1,22 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: solon-ai-example
+
+# AI 对话配置（OpenAI 兼容协议）
+# .env 文件中的同名配置会覆盖此处默认值
+# apiUrl 不要带 /v1/chat/completions，Solon AI 会自动拼接
+ai:
+  chat:
+    openai:
+      api-url: ${AI_API_URL:http://localhost:1234/v1}
+      api-key: ${AI_API_KEY:sk-your-api-key}
+      model: ${AI_MODEL:gpt-3.5-turbo}
+      provider: openai
+
+logging:
+  level:
+    com.example.ai: DEBUG
+    org.noear: INFO
