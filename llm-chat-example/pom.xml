@@ -10,8 +10,8 @@
         <version>1.0.0</version>
     </parent>
 
-    <artifactId>llm-example</artifactId>
-    <name>LLM Example</name>
+    <artifactId>llm-chat-example</artifactId>
+    <name>LLM Chat Example</name>
     <description>AI chat example application</description>
 
     <dependencies>

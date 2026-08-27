@@ -31,7 +31,7 @@ solon-ai-example/
 │       │   ├── ChatModelProperties.java          # @ConfigurationProperties
 │       │   └── EnvFileLoader.java                # .env 加载器
 │       └── resources/META-INF/spring.factories   # 自动装配注册
-└── llm-example/                    # 对话示例应用
+└── llm-chat-example/                # 对话示例应用
     ├── pom.xml
     └── src/main/
         ├── java/com/example/ai/example/
@@ -47,11 +47,11 @@ solon-ai-example/
 > Maven settings.xml 已配置在 `C:\Users\ZJBR\.m2\settings.xml`，本地仓库指向 `D:\apache-maven-3.6\maven-repository`，fingard profile 自动激活，无需额外 `-Dmaven.repo.local` 参数。
 
 ```bash
-# 根目录构建（同时构建 llm-core 与 llm-example）
+# 根目录构建（同时构建 llm-core 与 llm-chat-example）
 mvn clean install -DskipTests
 
 # 运行示例
-java -jar llm-example/target/solon-ai-example.jar
+java -jar llm-chat-example/target/solon-ai-example.jar
 ```
 
 ## 配置
@@ -93,6 +93,6 @@ curl -X POST http://localhost:8080/chat/sendMessage \
 - `llm-core`（starter）:
   - `spring-boot-autoconfigure`
   - `solon-ai-core` + `solon-ai-dialect-openai`
-- `llm-example`（示例应用）:
+- `llm-chat-example`（示例应用）:
   - `llm-core`
   - `spring-boot-starter-web`

@@ -3,7 +3,7 @@ server:
 
 spring:
   application:
-    name: llm-example
+    name: llm-chat-example
 
 # Solon AI ChatModel 自动装配配置（由 llm-core starter 提供）
 # .env 文件中的同名配置会覆盖此处默认值

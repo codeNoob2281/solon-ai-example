@@ -20,7 +20,7 @@
 
     <modules>
         <module>llm-core</module>
-        <module>llm-example</module>
+        <module>llm-chat-example</module>
     </modules>
 
     <properties>
