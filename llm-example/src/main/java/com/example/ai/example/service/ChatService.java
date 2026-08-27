@@ -1,4 +1,4 @@
-package com.example.ai.service;
+package com.example.ai.example.service;
 
 import org.noear.solon.ai.chat.ChatModel;
 import javax.annotation.Resource;

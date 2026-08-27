@@ -1,7 +1,7 @@
-package com.example.ai.controller;
+package com.example.ai.example.controller;
 
-import com.example.ai.dto.OpenAiRequest;
-import com.example.ai.service.ChatService;
+import com.example.ai.example.dto.OpenAiRequest;
+import com.example.ai.example.service.ChatService;
 import javax.annotation.Resource;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;

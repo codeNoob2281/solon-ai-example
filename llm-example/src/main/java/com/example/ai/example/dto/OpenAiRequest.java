@@ -1,4 +1,4 @@
-package com.example.ai.dto;
+package com.example.ai.example.dto;
 
 import lombok.Data;
 

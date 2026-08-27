@@ -13,60 +13,18 @@
     <groupId>com.example</groupId>
     <artifactId>solon-ai-example</artifactId>
     <version>1.0.0</version>
-    <packaging>jar</packaging>
+    <packaging>pom</packaging>
 
     <name>Solon AI Example</name>
-    <description>Minimal AI chat example using Spring Boot 2.7.18 + Solon AI 4.0.6 with OpenAI protocol</description>
+    <description>Minimal AI chat example: Spring Boot 2.7.18 + Solon AI 4.0.6</description>
+
+    <modules>
+        <module>llm-core</module>
+        <module>llm-example</module>
+    </modules>
 
     <properties>
         <java.version>8</java.version>
         <solon-ai.version>4.0.6</solon-ai.version>
     </properties>
-
-    <dependencies>
-        <!-- Spring Boot Web -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-
-        <!-- Lombok -->
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <scope>provided</scope>
-        </dependency>
-
-        <!-- Solon AI Core -->
-        <dependency>
-            <groupId>org.noear</groupId>
-            <artifactId>solon-ai-core</artifactId>
-            <version>${solon-ai.version}</version>
-        </dependency>
-
-        <!-- Solon AI OpenAI Dialect -->
-        <dependency>
-            <groupId>org.noear</groupId>
-            <artifactId>solon-ai-dialect-openai</artifactId>
-            <version>${solon-ai.version}</version>
-        </dependency>
-    </dependencies>
-
-    <build>
-        <finalName>solon-ai-example</finalName>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
 </project>

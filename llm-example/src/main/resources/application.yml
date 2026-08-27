@@ -3,11 +3,10 @@ server:
 
 spring:
   application:
-    name: solon-ai-example
+    name: llm-example
 
-# AI 对话配置（OpenAI 兼容协议）
+# Solon AI ChatModel 自动装配配置（由 llm-core starter 提供）
 # .env 文件中的同名配置会覆盖此处默认值
-# apiUrl 不要带 /v1/chat/completions，Solon AI 会自动拼接
 ai:
   chat:
     openai:
