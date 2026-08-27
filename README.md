@@ -1,13 +1,20 @@
-# Solon AI Chat Example
+# Solon AI Example
 
-Spring Boot 2.7.18 + Solon AI 4.0.6 最小对话示例（多模块）。
+本项目主要用于**探索 Spring Boot 2.x + Solon AI 实现 Java 语言的 Agent 项目落地实践**，提供一些简单的示例代码，方便快速上手和二次开发。
 
 ## 技术栈
 
 - **Spring Boot**: 2.7.18
 - **Solon AI**: 4.0.6 (`solon-ai-core` + `solon-ai-dialect-openai`)
 - **Java**: 8
-- **对话接口**: POST `/chat/sendMessage`
+- **OpenAI 协议**: 兼容 `/v1/chat/completions`
+
+## 探索方向
+
+- 在 Spring Boot 生态中集成 Solon AI，构建可复用的 LLM Starter
+- ChatModel 的自动装配与统一管理
+- Agent 能力的逐步引入（Talent / Tool / ReAct 等）
+- OpenAI 兼容协议的对接与方言自动注册
 
 ## 多模块结构
 
