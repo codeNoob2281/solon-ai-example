@@ -36,8 +36,8 @@ solon-ai-example/
     └── src/main/
         ├── java/com/example/ai/example/
         │   ├── AiChatApplication.java             # 入口（启动前加载 .env）
-        │   ├── controller/ChatController.java     # POST /chat/sendMessage
-        │   ├── service/ChatService.java           # AI 对话服务
+        │   ├── controller/ChatController.java     # POST /chat/sendMessage + /chat/sendMessageStream
+        │   ├── service/ChatService.java           # AI 对话服务（含流式）
         │   └── dto/OpenAiRequest.java             # 请求体
         └── resources/application.yml
 ```
@@ -73,6 +73,8 @@ java -jar llm-chat-example/target/solon-ai-example.jar
 
 ## API 使用
 
+### 非流式对话
+
 ```bash
 curl -X POST http://localhost:8080/chat/sendMessage \
   -H "Content-Type: application/json" \
@@ -80,6 +82,34 @@ curl -X POST http://localhost:8080/chat/sendMessage \
 ```
 
 响应：直接返回 AI 回复文本。
+
+### 流式对话（SSE）
+
+```bash
+curl -N -X POST http://localhost:8080/chat/sendMessageStream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好，请用一句话介绍自己"}'
+```
+
+响应为 `text/event-stream`，逐块推送：
+
+```
+event: message
+data: 你好！
+
+event: message
+data: 我是 AI 助手
+
+event: done
+data:
+```
+
+SSE 事件说明：
+- `message`: 每个增量文本块（`data` 为该块内容）
+- `done`: 流结束
+- `error`: 调用出错
+
+流式原理：`ChatService.stream()` 返回 Solon AI 的 `Flux<ChatResponse>`（Reactor），控制器订阅后通过 Spring MVC 的 `SseEmitter` 推送给客户端，无需引入 WebFlux。
 
 ## 关键设计
 
