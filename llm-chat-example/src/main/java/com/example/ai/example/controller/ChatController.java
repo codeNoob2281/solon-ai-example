@@ -1,5 +1,6 @@
 package com.example.ai.example.controller;
 
+import com.example.ai.example.dto.ChatOptionsRequest;
 import com.example.ai.example.dto.OpenAiRequest;
 import com.example.ai.example.service.ChatService;
 import org.noear.solon.ai.chat.ChatResponse;
@@ -14,8 +15,9 @@ import javax.annotation.Resource;
 
 /**
  * AI 对话接口
- * POST /chat/sendMessage          非流式，返回完整文本
- * POST /chat/sendMessageStream    流式，返回 SSE 事件流
+ * POST /chat/sendMessage              非流式，返回完整文本
+ * POST /chat/sendMessageStream        流式，返回 SSE 事件流
+ * POST /chat/sendMessageWithOptions   带 ChatOptions 参数，非流式
  */
 @RestController
 @RequestMapping("/chat")
@@ -38,7 +40,6 @@ public class ChatController {
      */
     @PostMapping(value = "/sendMessageStream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter sendMessageStream(@RequestBody OpenAiRequest request) {
-        // 0 = 不超时；实际生产建议设置合理超时（如 5 分钟 = 300000L）
         SseEmitter emitter = new SseEmitter(0L);
 
         chatService.stream(request.getMessage())
@@ -49,6 +50,26 @@ public class ChatController {
             );
 
         return emitter;
+    }
+
+    /**
+     * 带 ChatOptions 的非流式对话。
+     * <p>
+     * 请求体支持以下可选参数：
+     * <ul>
+     *   <li>contextLength - 上下文窗口大小（token 数）</li>
+     *   <li>maxTokens - 最大输出 token 数</li>
+     *   <li>temperature - 温度（0.0~2.0）</li>
+     *   <li>topP - top_p 采样（0.0~1.0）</li>
+     *   <li>reasoningEffort - 思考强度（low/medium/high/max）</li>
+     *   <li>thinking - 是否开启思考模式（true/false）</li>
+     * </ul>
+     *
+     * @see ChatOptionsRequest
+     */
+    @PostMapping("/sendMessageWithOptions")
+    public String sendMessageWithOptions(@RequestBody ChatOptionsRequest request) {
+        return chatService.chatWithOptions(request);
     }
 
     private void sendMessage(SseEmitter emitter, ChatResponse response) {

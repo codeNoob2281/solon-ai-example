@@ -29,6 +29,10 @@ public class ChatModelAutoConfiguration {
         config.setApiKey(properties.getApiKey());
         config.setProvider(properties.getProvider());
         config.setModel(properties.getModel());
-        return ChatModel.of(config).build();
+        ChatModel.Builder builder = ChatModel.of(config);
+        if (properties.isLoggingEnabled()) {
+            builder.defaultInterceptorAdd(new LoggingChatInterceptor());
+        }
+        return builder.build();
     }
 }

@@ -14,8 +14,11 @@ ai:
       api-key: ${AI_API_KEY:sk-your-api-key}
       model: ${AI_MODEL:gpt-3.5-turbo}
       provider: openai
+      # 是否开启模型请求/响应日志（默认 true）
+      logging-enabled: true
 
 logging:
   level:
     com.example.ai: DEBUG
     org.noear: INFO
+    org.noear.solon.ai.chat.dialect.AbstractChatDialect: INFO
