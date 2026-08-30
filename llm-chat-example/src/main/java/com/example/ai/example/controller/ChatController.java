@@ -6,9 +6,11 @@ import com.example.ai.example.service.ChatService;
 import org.noear.solon.ai.chat.ChatResponse;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.annotation.Resource;
@@ -18,6 +20,9 @@ import javax.annotation.Resource;
  * POST /chat/sendMessage              非流式，返回完整文本
  * POST /chat/sendMessageStream        流式，返回 SSE 事件流
  * POST /chat/sendMessageWithOptions   带 ChatOptions 参数，非流式
+ * POST /chat/presetConversation      预设对话（系统提示词 + 历史消息）
+ * POST /chat/promptTemplate           提示词模板（#{key} 变量替换）
+ * POST /chat/imageUnderstanding       图像理解（文本 + 图片 URL）
  */
 @RestController
 @RequestMapping("/chat")
@@ -70,6 +75,43 @@ public class ChatController {
     @PostMapping("/sendMessageWithOptions")
     public String sendMessageWithOptions(@RequestBody ChatOptionsRequest request) {
         return chatService.chatWithOptions(request);
+    }
+
+    /**
+     * 预设对话示例：天气查询场景。
+     * <p>
+     * 系统提示词："你是一个天气查询助手"
+     * 预设历史：user"今天杭州天气怎么样？" → assistant"杭州今天天气多云，气温22-28度，微风。"
+     * 最终提问："下午要带伞吗？"
+     * <p>
+     * AI 基于完整上下文回答最终提问。
+     */
+    @PostMapping("/presetConversation")
+    public String presetConversation() {
+        return chatService.presetConversation();
+    }
+
+    /**
+     * 提示词模板示例：讲笑话场景。
+     * <p>
+     * 系统提示词（硬编码）："你喜欢讲笑话，但是大家并不觉得好笑"
+     * 模板（通过 ChatMessage.ofUserTmpl + SnEL）："给我讲一个关于#{subject}的笑话"
+     * <p>
+     * 用户只需传入主题，如：?subject=程序员
+     */
+    @PostMapping("/promptTemplate")
+    public String promptTemplate(@RequestParam String subject) {
+        return chatService.promptTemplate(subject);
+    }
+
+    /**
+     * 图像理解示例：文本 + 图片 URL。
+     * <p>
+     * 硬编码："这是什么动物？" + ImageBlock.ofUrl("https://pic.nximg.cn/file/20210531/10621685_024234407129_2.jpg")
+     */
+    @PostMapping("/imageUnderstanding")
+    public String imageUnderstanding() {
+        return chatService.imageUnderstanding();
     }
 
     private void sendMessage(SseEmitter emitter, ChatResponse response) {

@@ -4,8 +4,12 @@ import com.example.ai.example.dto.ChatOptionsRequest;
 import org.noear.solon.ai.chat.ChatConfig;
 import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.chat.ChatResponse;
+import org.noear.solon.ai.chat.content.ImageBlock;
+import org.noear.solon.ai.chat.message.ChatMessage;
 import reactor.core.publisher.Flux;
+
 import javax.annotation.Resource;
+
 import org.springframework.stereotype.Service;
 
 /**
@@ -30,23 +34,73 @@ public class ChatService {
 
     /**
      * 流式对话，返回 AI 响应流（Reactor Flux）
-     * 每个 ChatResponse 通过 getContent() 提供增量文本
      */
     public Flux<ChatResponse> stream(String userMessage) {
         return chatModel.prompt(userMessage).stream();
     }
 
     /**
-     * 带 ChatOptions 的单轮对话。
+     * 预设对话示例：天气查询场景。
      * <p>
-     * 演示如何在每次请求中动态设置模型参数：
-     * <ul>
-     *   <li>contextLength → 构建 ChatConfig（影响上下文压缩窗口）</li>
-     *   <li>maxTokens / temperature / reasoningEffort / thinking → ChatOptions（每次请求动态生效）</li>
-     * </ul>
+     * 系统提示词（通过 .systemPrompt() 设置）："你是一个天气查询助手"
+     * 对话历史：
+     * user:      "今天杭州天气怎么样？"
+     * assistant: "杭州今天天气多云，气温22-28度，微风。"
+     * 最终提问："下午要带伞吗？"
+     * <p>
+     * AI 基于完整上下文回答最终提问。
+     */
+    public String presetConversation() {
+        try {
+            return chatModel.prompt(
+                            ChatMessage.ofUser("今天杭州天气怎么样？"),
+                            ChatMessage.ofAssistant("杭州今天天气多云，气温22-28度，微风。"),
+                            ChatMessage.ofUser("下午要带伞吗？")
+                    )
+                    .systemPrompt("你是一个天气查询助手")
+                    .call()
+                    .getContent();
+        } catch (Exception e) {
+            throw new RuntimeException("AI call failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 提示词模板示例：讲笑话场景。
+     * <p>
+     * 使用 Solon AI 的 UserMessageTemplate + SnEL 模板引擎：
+     * <pre>{@code
+     * ChatMessage.ofUserTmpl("给我讲一个关于#{subject}的笑话")
+     *     .paramAdd("subject", subject)
+     *     .generate();
+     * }</pre>
+     * <p>
+     * 系统提示词（硬编码）："你喜欢讲笑话，但是大家并不觉得好笑"
+     * 用户只需传入主题。
      *
-     * @param request 对话请求（含消息 + 可选参数）
+     * @param subject 笑话主题
      * @return AI 响应文本
+     */
+    public String promptTemplate(String subject) {
+        try {
+            ChatMessage msg = ChatMessage.ofUserTmpl("给我讲一个关于#{subject}的笑话")
+                    .paramAdd("subject", subject)
+                    .generate();
+
+            return chatModel.prompt(msg)
+                    .systemPrompt("你喜欢讲笑话，但是大家并不觉得好笑")
+                    .options(op -> op
+                            .temperature(0.9d)
+                            .reasoning_effort("max"))
+                    .call()
+                    .getContent();
+        } catch (Exception e) {
+            throw new RuntimeException("AI call failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 带 ChatOptions 的单轮对话。
      */
     public String chatWithOptions(ChatOptionsRequest request) {
         try {
@@ -63,14 +117,12 @@ public class ChatService {
 
     /**
      * 根据上下文窗口大小构建 ChatModel。
-     * contextLength 为 null 或 0 时复用默认 chatModel（避免不必要的对象创建）。
      */
     private ChatModel buildModel(Long contextLength) {
         if (contextLength == null || contextLength <= 0) {
             return chatModel;
         }
 
-        // 从默认 chatModel 的配置复制基础参数，仅覆盖 contextLength
         ChatConfig config = new ChatConfig();
         config.setApiUrl(chatModel.getConfig().getApiUrl());
         config.setApiKey(chatModel.getConfig().getApiKey());
@@ -83,10 +135,6 @@ public class ChatService {
 
     /**
      * 将请求参数应用到 ChatOptions。
-     * <p>
-     * 注意：reasoning_effort 与 thinking 的优先级关系由 Solon AI 内部处理：
-     * thinking(false) 关闭优先于 reasoning_effort；仅设 reasoning_effort 时
-     * 多数方言会隐式开启 thinking。
      */
     private void applyOptions(org.noear.solon.ai.chat.ChatOptions opts, ChatOptionsRequest req) {
         if (req.getMaxTokens() != null && req.getMaxTokens() > 0) {
@@ -103,6 +151,26 @@ public class ChatService {
         }
         if (req.getThinking() != null) {
             opts.thinking(req.getThinking());
+        }
+    }
+
+    /**
+     * 图像理解示例：文本 + 图片 URL。
+     * <p>
+     * 硬编码参数：
+     * <pre>{@code
+     * ChatMessage.ofUser("这是什么动物？",
+     *     ImageBlock.ofUrl("https://img-s.msn.cn/tenant/amp/entityid/AA23nVpu.img"));
+     * }</pre>
+     */
+    public String imageUnderstanding() {
+        try {
+            ChatMessage msg = ChatMessage.ofUser("这是什么动物？",
+                    ImageBlock.ofUrl("https://img-s.msn.cn/tenant/amp/entityid/AA23nVpu.img"));
+
+            return chatModel.prompt(msg).call().getContent();
+        } catch (Exception e) {
+            throw new RuntimeException("AI call failed: " + e.getMessage(), e);
         }
     }
 }
