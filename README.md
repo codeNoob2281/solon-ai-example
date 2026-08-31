@@ -36,8 +36,8 @@ solon-ai-example/
     └── src/main/
         ├── java/com/example/ai/example/
         │   ├── AiChatApplication.java             # 入口（启动前加载 .env）
-        │   ├── controller/ChatController.java     # POST /chat/sendMessage + /chat/sendMessageStream
-        │   ├── service/ChatService.java           # AI 对话服务（含流式）
+        │   ├── controller/ChatController.java     # POST /chat/sendMessage + /chat/sendMessageStream + 自定义智能体
+        │   ├── service/ChatService.java           # AI 对话服务（含流式 + 自定义智能体）
         │   └── dto/OpenAiRequest.java             # 请求体
         └── resources/application.yml
 ```
@@ -110,6 +110,69 @@ SSE 事件说明：
 - `error`: 调用出错
 
 流式原理：`ChatService.stream()` 返回 Solon AI 的 `Flux<ChatResponse>`（Reactor），控制器订阅后通过 Spring MVC 的 `SseEmitter` 推送给客户端，无需引入 WebFlux。
+
+### 音频理解（识别动物叫声）
+
+硬编码："请识别这段音频中是什么动物的叫声？" + 音频 URL，OpenAI 兼容方言会将 `AudioBlock` 序列化为 `audio_url` 内容块。
+
+```bash
+curl -X POST http://localhost:8080/chat/audioUnderstanding
+```
+
+对应 Solon AI 构建方式：
+
+```java
+ChatMessage msg = ChatMessage.ofUser("请识别这段音频中是什么动物的叫声？",
+        AudioBlock.ofUrl("https://cdn.pixabay.com/download/audio/2026/01/24/audio_761a22043a.mp3?filename=dragon-studio-cute-cat-meow-472372.mp3"));
+```
+
+可选参数：`?modelName=xxx` 切换模型（默认 `dots3-note-prev`）。
+
+### 视频理解（描述视频内容）
+
+硬编码："请描述这段视频的内容？" + 视频 URL，OpenAI 兼容方言会将 `VideoBlock` 序列化为 `video_url` 内容块。
+
+```bash
+curl -X POST http://localhost:8080/chat/videoUnderstanding
+# 可选：curl -X POST "http://localhost:8080/chat/videoUnderstanding?modelName=Qwen2.5-VL"
+```
+
+对应 Solon AI 构建方式：
+
+```java
+ChatMessage msg = ChatMessage.ofUser("请描述这段视频的内容？",
+        VideoBlock.ofUrl("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"));
+```
+
+### 自定义智能体（非流式）
+
+模拟 agent 应用中的"自定义智能体"功能：传入**角色 + 系统指令 + 用户消息**，动态构建带 role / instruction 的 ChatModel。
+
+```bash
+curl -X POST http://localhost:8080/chat/customAgent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "role": "财务数据分析师",
+    "instruction": "你负责分析订单与退款数据。金额单位均为元。",
+    "message": "请分析本周订单退款率"
+  }'
+```
+
+可选字段（不传则复用全局默认配置）：
+- `apiUrl`: OpenAI 兼容 API 地址（可带 `/v1/chat/completions`，也可只到域名根）
+- `apiKey`: API 密钥
+- `model`: 模型名称
+
+对应 Solon AI 构建方式：
+
+```java
+ChatModel agent = ChatModel.of("https://api.moark.com/v1/chat/completions")
+        .apiKey("***")
+        .model("Qwen3-32B")
+        .role("财务数据分析师")
+        .instruction("你负责分析订单与退款数据。金额单位均为元。")
+        .build();
+```
 
 ## 关键设计
 

@@ -1,10 +1,14 @@
 package com.example.ai.example.service;
 
+import com.example.ai.core.LoggingChatInterceptor;
 import com.example.ai.example.dto.ChatOptionsRequest;
+import com.example.ai.example.dto.CustomAgentRequest;
 import org.noear.solon.ai.chat.ChatConfig;
 import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.chat.ChatResponse;
+import org.noear.solon.ai.chat.content.AudioBlock;
 import org.noear.solon.ai.chat.content.ImageBlock;
+import org.noear.solon.ai.chat.content.VideoBlock;
 import org.noear.solon.ai.chat.message.ChatMessage;
 import reactor.core.publisher.Flux;
 
@@ -134,6 +138,20 @@ public class ChatService {
     }
 
     /**
+     * 切换模型
+     */
+    private ChatModel switchModel(String modelName) {
+        ChatConfig config = new ChatConfig();
+        config.setApiUrl(chatModel.getConfig().getApiUrl());
+        config.setApiKey(chatModel.getConfig().getApiKey());
+        config.setProvider(chatModel.getConfig().getProvider());
+        config.setModel(modelName);
+        return ChatModel.of(config)
+                .defaultInterceptorAdd(new LoggingChatInterceptor())
+                .build();
+    }
+
+    /**
      * 将请求参数应用到 ChatOptions。
      */
     private void applyOptions(org.noear.solon.ai.chat.ChatOptions opts, ChatOptionsRequest req) {
@@ -155,6 +173,59 @@ public class ChatService {
     }
 
     /**
+     * 自定义智能体对话（非流式）。
+     * <p>
+     * 模拟 agent 应用中的"自定义智能体"功能：传入角色 + 系统指令 + 用户消息，
+     * 动态构建一个带 role / instruction 的 ChatModel 完成单轮对话。
+     * <pre>{@code
+     * ChatModel agent = ChatModel.of(apiUrl)
+     *         .apiKey(apiKey)
+     *         .model(model)
+     *         .role(role)
+     *         .instruction(instruction)
+     *         .build();
+     * }</pre>
+     * apiUrl / apiKey / model 未传时复用全局默认 ChatModel 的配置。
+     *
+     * @param request 自定义智能体请求
+     * @return AI 响应文本
+     */
+    public String chatAsCustomAgent(CustomAgentRequest request) {
+        try {
+            ChatModel agent = buildCustomAgent(request);
+            return agent.prompt(request.getMessage()).call().getContent();
+        } catch (Exception e) {
+            throw new RuntimeException("AI call failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 根据请求参数构建自定义智能体 ChatModel。
+     * <p>
+     * 与 llm-core 自动装配的全局 ChatModel 相互独立：
+     * 这里通过 {@link ChatModel#of(String)} 链式构建，role / instruction 会作为模型级
+     * 默认 ChatOptions 持久化，每次 prompt 都会自动合并进系统提示词，无需额外传参。
+     */
+    private ChatModel buildCustomAgent(CustomAgentRequest req) {
+        // 未传时复用全局默认 ChatModel 的配置（apiUrl / apiKey / model）
+        String apiUrl = hasText(req.getApiUrl()) ? req.getApiUrl() : chatModel.getConfig().getApiUrl();
+        String apiKey = hasText(req.getApiKey()) ? req.getApiKey() : chatModel.getConfig().getApiKey();
+        String model = hasText(req.getModel()) ? req.getModel() : chatModel.getModel();
+
+        return ChatModel.of(apiUrl)
+                .apiKey(apiKey)
+                .model(model)
+                .role(req.getRole())
+                .instruction(req.getInstruction())
+                .defaultInterceptorAdd(new LoggingChatInterceptor())
+                .build();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    /**
      * 图像理解示例：文本 + 图片 URL。
      * <p>
      * 硬编码参数：
@@ -169,6 +240,54 @@ public class ChatService {
                     ImageBlock.ofUrl("https://img-s.msn.cn/tenant/amp/entityid/AA23nVpu.img"));
 
             return chatModel.prompt(msg).call().getContent();
+        } catch (Exception e) {
+            throw new RuntimeException("AI call failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 音频理解示例：文本 + 音频 URL，识别音频中的动物叫声。
+     * <p>
+     * 硬编码参数：
+     * <pre>{@code
+     * ChatMessage.ofUser("请识别这段音频中是什么动物的叫声？",
+     *     AudioBlock.ofUrl("https://cdn.pixabay.com/download/audio/2026/01/24/audio_761a22043a.mp3?filename=dragon-studio-cute-cat-meow-472372.mp3"));
+     * }</pre>
+     * OpenAI 兼容方言会将 AudioBlock 序列化为 {@code audio_url} 类型内容块。
+     */
+    public String audioUnderstanding(String modelName) {
+        try {
+            ChatMessage msg = ChatMessage.ofUser("请识别这段音频中是什么动物的叫声？",
+                    AudioBlock.ofUrl("https://cdn.pixabay.com/download/audio/2026/01/24/audio_761a22043a.mp3?filename=dragon-studio-cute-cat-meow-472372.mp3"));
+            ChatModel chatModel1 = switchModel(modelName);
+            return chatModel1.prompt(msg)
+                    .options(op -> op.temperature(0.1d))
+                    .call()
+                    .getContent();
+        } catch (Exception e) {
+            throw new RuntimeException("AI call failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 视频理解示例：文本 + 视频 URL，描述视频内容。
+     * <p>
+     * 硬编码参数：
+     * <pre>{@code
+     * ChatMessage.ofUser("请描述这段视频的内容？",
+     *     VideoBlock.ofUrl("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"));
+     * }</pre>
+     * OpenAI 兼容方言会将 VideoBlock 序列化为 {@code video_url} 类型内容块。
+     */
+    public String videoUnderstanding(String modelName) {
+        try {
+            ChatMessage msg = ChatMessage.ofUser("请描述这段视频的内容？",
+                    VideoBlock.ofUrl("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"));
+            ChatModel chatModel1 = switchModel(modelName);
+            return chatModel1.prompt(msg)
+                    .options(op -> op.temperature(0.1d))
+                    .call()
+                    .getContent();
         } catch (Exception e) {
             throw new RuntimeException("AI call failed: " + e.getMessage(), e);
         }

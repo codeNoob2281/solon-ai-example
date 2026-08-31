@@ -1,6 +1,7 @@
 package com.example.ai.example.controller;
 
 import com.example.ai.example.dto.ChatOptionsRequest;
+import com.example.ai.example.dto.CustomAgentRequest;
 import com.example.ai.example.dto.OpenAiRequest;
 import com.example.ai.example.service.ChatService;
 import org.noear.solon.ai.chat.ChatResponse;
@@ -23,6 +24,9 @@ import javax.annotation.Resource;
  * POST /chat/presetConversation      预设对话（系统提示词 + 历史消息）
  * POST /chat/promptTemplate           提示词模板（#{key} 变量替换）
  * POST /chat/imageUnderstanding       图像理解（文本 + 图片 URL）
+ * POST /chat/audioUnderstanding       音频理解（文本 + 音频 URL，识别动物叫声）
+ * POST /chat/videoUnderstanding       视频理解（文本 + 视频 URL，描述视频内容）
+ * POST /chat/customAgent              自定义智能体（角色 + 系统指令 + 用户消息），非流式
  */
 @RestController
 @RequestMapping("/chat")
@@ -39,20 +43,20 @@ public class ChatController {
     /**
      * 流式对话：基于 SseEmitter 推送增量文本
      * SSE 事件：
-     *   - message: 每个增量文本块
-     *   - done:    流结束
-     *   - error:   调用出错
+     * - message: 每个增量文本块
+     * - done:    流结束
+     * - error:   调用出错
      */
     @PostMapping(value = "/sendMessageStream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter sendMessageStream(@RequestBody OpenAiRequest request) {
         SseEmitter emitter = new SseEmitter(0L);
 
         chatService.stream(request.getMessage())
-            .subscribe(
-                response -> sendMessage(emitter, response),
-                error -> sendError(emitter, error),
-                () -> complete(emitter)
-            );
+                .subscribe(
+                        response -> sendMessage(emitter, response),
+                        error -> sendError(emitter, error),
+                        () -> complete(emitter)
+                );
 
         return emitter;
     }
@@ -112,6 +116,58 @@ public class ChatController {
     @PostMapping("/imageUnderstanding")
     public String imageUnderstanding() {
         return chatService.imageUnderstanding();
+    }
+
+    /**
+     * 音频理解示例：识别音频中的动物叫声。
+     * <p>
+     * 硬编码："请识别这段音频中是什么动物的叫声？"
+     * + AudioBlock.ofUrl("https://cdn.pixabay.com/download/audio/2026/01/24/audio_761a22043a.mp3?filename=dragon-studio-cute-cat-meow-472372.mp3")
+     */
+    @PostMapping("/audioUnderstanding")
+    public String audioUnderstanding(@RequestParam(defaultValue = "dots3-note-prev") String modelName) {
+        return chatService.audioUnderstanding(modelName);
+    }
+
+    /**
+     * 视频理解示例：描述视频内容。
+     * <p>
+     * 硬编码："请描述这段视频的内容？"
+     * + VideoBlock.ofUrl("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
+     */
+    @PostMapping("/videoUnderstanding")
+    public String videoUnderstanding(@RequestParam(defaultValue = "dots3-note-prev") String modelName) {
+        return chatService.videoUnderstanding(modelName);
+    }
+
+    /**
+     * 自定义智能体对话（非流式）。
+     * <p>
+     * 模拟 agent 应用中的"自定义智能体"功能，请求体示例：
+     * <pre>{@code
+     * {
+     *   "role": "财务数据分析师",
+     *   "instruction": "你负责分析订单与退款数据。金额单位均为元。",
+     *   "message": "请分析本周订单退款率",
+     *   // 以下可选，不传则复用全局默认配置
+     *   "apiUrl": "https://api.moark.com/v1/chat/completions",
+     *   "apiKey": "sk-xxx",
+     *   "model": "Qwen3-32B"
+     * }
+     * }</pre>
+     * 对应 Solon AI 构建方式：
+     * <pre>{@code
+     * ChatModel agent = ChatModel.of(apiUrl)
+     *         .apiKey(apiKey)
+     *         .model(model)
+     *         .role(role)
+     *         .instruction(instruction)
+     *         .build();
+     * }</pre>
+     */
+    @PostMapping("/customAgent")
+    public String customAgent(@RequestBody CustomAgentRequest request) {
+        return chatService.chatAsCustomAgent(request);
     }
 
     private void sendMessage(SseEmitter emitter, ChatResponse response) {
