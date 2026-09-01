@@ -17,6 +17,9 @@ mvnw.cmd
 *.log
 log/
 
+# 会话记忆运行时数据（FileChatSession 落盘目录，临时数据不提交）
+temp/
+
 # 操作系统
 .DS_Store
 Thumbs.db

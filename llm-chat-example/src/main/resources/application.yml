@@ -17,6 +17,13 @@ ai:
       # 是否开启模型请求/响应日志（默认 true）
       logging-enabled: true
 
+    # 会话记忆配置（ChatMemoryService，基于 FileChatSession）
+    session:
+      # 对话记忆存储目录（相对路径，基于应用运行目录）
+      memory-dir: ${AI_CHAT_MEMORY_DIR:temp/chat-memory}
+      # 交互窗口大小：模型交互时只取最近 N 条消息作为上下文（文件保留完整历史）
+      window-size: ${AI_CHAT_WINDOW_SIZE:20}
+
 logging:
   level:
     com.example.ai: DEBUG

@@ -1,8 +1,10 @@
 package com.example.ai.example.controller;
 
+import com.example.ai.example.dto.ChatMemoryRequest;
 import com.example.ai.example.dto.ChatOptionsRequest;
 import com.example.ai.example.dto.CustomAgentRequest;
 import com.example.ai.example.dto.OpenAiRequest;
+import com.example.ai.example.service.ChatMemoryService;
 import com.example.ai.example.service.ChatService;
 import org.noear.solon.ai.chat.ChatResponse;
 import org.springframework.http.MediaType;
@@ -20,6 +22,7 @@ import javax.annotation.Resource;
  * AI 对话接口
  * POST /chat/sendMessage              非流式，返回完整文本
  * POST /chat/sendMessageStream        流式，返回 SSE 事件流
+ * POST /chat/memory/send              带记忆的对话（FileChatSession 持久化，窗口大小 20）
  * POST /chat/sendMessageWithOptions   带 ChatOptions 参数，非流式
  * POST /chat/presetConversation      预设对话（系统提示词 + 历史消息）
  * POST /chat/promptTemplate           提示词模板（#{key} 变量替换）
@@ -35,9 +38,34 @@ public class ChatController {
     @Resource
     private ChatService chatService;
 
+    @Resource
+    private ChatMemoryService chatMemoryService;
+
     @PostMapping("/sendMessage")
     public String sendMessage(@RequestBody OpenAiRequest request) {
         return chatService.chat(request.getMessage());
+    }
+
+    /**
+     * 带记忆的对话（基于 FileChatSession，非流式）。
+     * <p>
+     * 传入 sessionId 和消息内容，同一 sessionId 会共享同一份对话记忆：
+     * 历史消息作为上下文一起发给模型，AI 能"记住"之前的对话。
+     * 持久化文件（temp/chat-memory/{sessionId}.messages.ndjson）保留完整消息历史，
+     * 模型交互时只取最近 windowSize（默认 20）条作为上下文。
+     * <p>
+     * 请求体示例：
+     * <pre>{@code
+     * {
+     *   "sessionId": "session-1",
+     *   "message": "我叫小明，请记住我的名字"
+     * }
+     * }</pre>
+     * 第二次用同一 sessionId 提问"我叫什么名字？"时，AI 能回忆起上文。
+     */
+    @PostMapping("/memory/send")
+    public String sendMemoryMessage(@RequestBody ChatMemoryRequest request) {
+        return chatMemoryService.chatWithMemory(request.getSessionId(), request.getMessage());
     }
 
     /**
