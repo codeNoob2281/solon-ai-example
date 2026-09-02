@@ -1,0 +1,52 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: rag-example
+
+# Solon AI ChatModel 自动装配配置（由 llm-core starter 提供，用于 RAG 问答生成）
+ai:
+  chat:
+    openai:
+      api-url: ${AI_API_URL:http://localhost:1234/v1}
+      api-key: ${AI_API_KEY:sk-your-api-key}
+      model: ${AI_MODEL:gpt-3.5-turbo}
+      provider: openai
+      logging-enabled: true
+
+  # RAG 示例配置（前缀 ai.rag，见 RagProperties）
+  rag:
+    embedding:
+      # Ollama bge-m3：apiUrl 用完整地址（不是 api_base），并配置 provider/standard = ollama
+      api-url: ${RAG_EMBEDDING_API_URL:http://127.0.0.1:11434/api/embed}
+      api-key: ${RAG_EMBEDDING_API_KEY:}
+      model: ${RAG_EMBEDDING_MODEL:bge-m3:latest}
+      provider: ${RAG_EMBEDDING_PROVIDER:ollama}
+      standard: ${RAG_EMBEDDING_STANDARD:ollama}
+      batch-size: ${RAG_EMBEDDING_BATCH_SIZE:10}
+
+    milvus:
+      # 本地 Milvus Standalone（docker 默认端口 19530）
+      uri: ${MILVUS_URI:http://localhost:19530}
+      token: ${MILVUS_TOKEN:}
+      username: ${MILVUS_USERNAME:}
+      password: ${MILVUS_PASSWORD:}
+      db-name: ${MILVUS_DB_NAME:}
+
+    repository:
+      collection-name: ${MILVUS_COLLECTION:solon_rag_demo}
+
+    splitter:
+      chunk-size: ${RAG_CHUNK_SIZE:500}
+      min-chunk-size-chars: ${RAG_MIN_CHUNK_CHARS:300}
+      min-chunk-length-to-embed: 5
+      max-chunk-count: 1000
+      keep-separator: true
+
+logging:
+  level:
+    com.example.ai: DEBUG
+    org.noear: INFO
+    org.noear.solon.ai.chat.dialect.AbstractChatDialect: INFO
+    io.milvus: WARN

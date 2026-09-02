@@ -7,28 +7,17 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
- * 在 Spring Boot 启动前读取项目根目录 .env 文件，将键值对注入 System.properties。
- * application.yml / @ConfigurationProperties 中的 ${AI_API_URL:default} 等占位符会从系统属性解析。
+ * 在 Spring Boot 启动前读取项目根目录 .env 文件，将全部键值对注入 System.properties。
+ * application.yml / @ConfigurationProperties 中的 ${KEY:default} 等占位符会从系统属性解析。
+ * 无需维护键白名单：.env 中的每一个 KEY=VALUE 都会直接写入系统属性。
  */
 @Slf4j
 @UtilityClass
 public class EnvFileLoader {
 
     private static final String FILE_NAME = ".env";
-
-    /** .env 文件中的 KEY → 系统属性名 */
-    private static final Map<String, String> KEY_TO_SYSTEM = new HashMap<>();
-
-    static {
-        KEY_TO_SYSTEM.put("AI_API_URL", "AI_API_URL");
-        KEY_TO_SYSTEM.put("AI_API_KEY", "AI_API_KEY");
-        KEY_TO_SYSTEM.put("AI_MODEL", "AI_MODEL");
-        KEY_TO_SYSTEM.put("SERVER_PORT", "SERVER_PORT");
-    }
 
     /**
      * 在 SpringApplication.run() 之前调用
@@ -51,17 +40,26 @@ public class EnvFileLoader {
                     continue;
                 }
                 String key = line.substring(0, eqIdx).trim();
+                if (key.isEmpty()) {
+                    continue;
+                }
                 String value = stripQuotes(line.substring(eqIdx + 1).trim());
 
-                String systemKey = KEY_TO_SYSTEM.get(key);
-                if (systemKey != null) {
-                    System.setProperty(systemKey, value);
-                    log.debug("Loaded .env: {}={}", systemKey, systemKey.equals("AI_API_KEY") ? "***" : value);
-                }
+                System.setProperty(key, value);
+                log.debug("Loaded .env: {}={}", key, isSensitive(key) ? "***" : value);
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to read .env file: " + envFile.getAbsolutePath(), e);
         }
+    }
+
+    /**
+     * 敏感键（KEY/TOKEN/PASSWORD/SECRET）日志脱敏
+     */
+    private boolean isSensitive(String key) {
+        String upper = key.toUpperCase();
+        return upper.contains("KEY") || upper.contains("TOKEN")
+                || upper.contains("PASSWORD") || upper.contains("SECRET");
     }
 
     private File findEnvFile() {

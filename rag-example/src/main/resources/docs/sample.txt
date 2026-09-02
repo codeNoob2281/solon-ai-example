@@ -1,0 +1,7 @@
+Milvus 是一个开源的、云原生的向量数据库，用于存储、索引和管理由深度神经网络与其他机器学习模型生成的海量 embedding 向量。
+
+Milvus 的主要特点包括：对万亿级向量的毫秒级搜索能力、丰富的元数据过滤能力、可扩展的分布式架构，以及面向生产环境的可用性设计。
+
+Milvus 有两种部署形态：Milvus Lite（单机轻量版）和 Milvus Standalone（单机版）以及 Milvus Distributed（分布式集群）。本地开发通常使用 Standalone，默认 gRPC 端口为 19530。
+
+在 RAG 场景中，Milvus 通常作为矢量知识库存储：先将文档分块并向量化，再把向量写入 Collection；查询时用 query 向量在 Collection 中做相似度检索（如 COSINE / IP / L2），返回最相似的文本块作为大模型的上下文。

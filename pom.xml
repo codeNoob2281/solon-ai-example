@@ -21,6 +21,7 @@
     <modules>
         <module>llm-core</module>
         <module>llm-chat-example</module>
+        <module>rag-example</module>
     </modules>
 
     <properties>

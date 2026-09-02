@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.example</groupId>
+        <artifactId>solon-ai-example</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>rag-example</artifactId>
+    <name>RAG Example</name>
+    <description>Traditional RAG example: document loading, chunking and Milvus ingestion</description>
+
+    <dependencies>
+        <!-- LLM Core Starter（复用 ChatModel / EnvFileLoader 约定） -->
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>llm-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Spring Boot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!--
+          Solon AI Milvus 知识库（solon-ai-repo-milvus）
+          传递引入：
+            - org.noear:solon-ai（聚合：solon-ai-core + 各方言，含 openai/ollama EmbeddingDialect）
+            - io.milvus:milvus-sdk-java（ConnectConfig / MilvusClientV2）
+        -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-ai-repo-milvus</artifactId>
+            <version>${solon-ai.version}</version>
+        </dependency>
+
+        <!-- Markdown 文档加载器 -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-ai-load-markdown</artifactId>
+            <version>${solon-ai.version}</version>
+        </dependency>
+
+        <!-- HTML 文档加载器 -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-ai-load-html</artifactId>
+            <version>${solon-ai.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>rag-example</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -31,15 +31,31 @@ solon-ai-example/
 │       │   ├── ChatModelProperties.java          # @ConfigurationProperties
 │       │   └── EnvFileLoader.java                # .env 加载器
 │       └── resources/META-INF/spring.factories   # 自动装配注册
-└── llm-chat-example/                # 对话示例应用
+├── llm-chat-example/                # 对话示例应用
+│   ├── pom.xml
+│   └── src/main/
+│       ├── java/com/example/ai/example/
+│       │   ├── AiChatApplication.java             # 入口（启动前加载 .env）
+│       │   ├── controller/ChatController.java     # POST /chat/* 系列接口
+│       │   ├── service/ChatService.java           # AI 对话服务（含流式 + 自定义智能体）
+│       │   └── dto/                               # 请求体
+│       └── resources/application.yml
+└── rag-example/                    # 传统 RAG 示例应用（先实现：加载 → 分块 → Milvus 入库）
     ├── pom.xml
     └── src/main/
-        ├── java/com/example/ai/example/
-        │   ├── AiChatApplication.java             # 入口（启动前加载 .env）
-        │   ├── controller/ChatController.java     # POST /chat/sendMessage + /chat/sendMessageStream + 自定义智能体
-        │   ├── service/ChatService.java           # AI 对话服务（含流式 + 自定义智能体）
-        │   └── dto/OpenAiRequest.java             # 请求体
-        └── resources/application.yml
+        ├── java/com/example/ai/rag/
+        │   ├── RagExampleApplication.java         # 入口（启动前加载 .env）
+        │   ├── config/
+        │   │   ├── RagProperties.java             # @ConfigurationProperties(ai.rag.*)
+        │   │   └── RagConfig.java                 # EmbeddingModel/MilvusClientV2/MilvusRepository/Splitter Bean
+        │   ├── service/
+        │   │   ├── RagIngestionService.java       # 文档加载 + 分块 + 入库
+        │   │   └── RagSearchService.java          # 向量检索 + RAG 问答
+        │   ├── controller/RagController.java      # POST /rag/ingest/* + GET /rag/search + POST /rag/ask
+        │   └── dto/                               # 请求/响应体
+        └── resources/
+            ├── application.yml
+            └── docs/                              # 示例知识文档（sample.md/txt/html）
 ```
 
 ## 构建
@@ -189,3 +205,82 @@ ChatModel agent = ChatModel.of("https://api.moark.com/v1/chat/completions")
 - `llm-chat-example`（示例应用）:
   - `llm-core`
   - `spring-boot-starter-web`
+- `rag-example`（RAG 示例应用）:
+  - `llm-core`
+  - `spring-boot-starter-web`
+  - `solon-ai-repo-milvus`（MilvusRepository，传递引入 solon-ai 聚合 + milvus-sdk-java）
+  - `solon-ai-load-markdown` + `solon-ai-load-html`（文档加载器）
+
+---
+
+## RAG 示例（rag-example）
+
+参考官方文档：
+- [《rag - RAG 相关概念》](https://solon.noear.org/article/932)
+- [《solon-ai-repo-milvus》](https://solon.noear.org/article/941)
+
+**当前阶段已实现：文档加载（DocumentLoader）→ 分块（DocumentSplitter）→ 入库（MilvusRepository 写入 Milvus）。**
+检索与问答用于验证入库效果，属于传统 RAG 完整链路的一部分。
+
+### 运行前提
+
+- 本机/局域网可访问 **Milvus**（本地 Standalone 默认 `http://localhost:19530`；或改 `MILVUS_URI` 指向远程）
+- 可访问的**嵌入模型**服务，默认配置为 Ollama `bge-m3:latest`（`http://127.0.0.1:11434/api/embed`）
+  - 若使用 OpenAI 兼容嵌入接口：将 `RAG_EMBEDDING_PROVIDER`/`RAG_EMBEDDING_STANDARD` 留空，`RAG_EMBEDDING_API_URL` 指向 `/v1/embeddings`
+- RAG 问答（`/rag/ask`）复用 `AI_API_URL` 配置的 ChatModel
+
+### 启动
+
+```bash
+# 根目录构建（同时构建三个模块）
+mvn clean install -DskipTests
+
+# 运行 RAG 示例（默认端口 8081）
+java -jar rag-example/target/rag-example.jar
+```
+
+### API
+
+```bash
+# 1. 原始文本入库（加载 → 分块 → 写入 Milvus）
+curl -X POST http://localhost:8081/rag/ingest/text \
+  -H "Content-Type: application/json" \
+  -d '{"text":"RAG 是检索增强生成的简称……","title":"RAG 概念"}'
+
+# 2. 服务器单文件入库（自动按扩展名选 Markdown/Html/Text 加载器）
+curl -X POST http://localhost:8081/rag/ingest/file \
+  -H "Content-Type: application/json" \
+  -d '{"path":"rag-example/src/main/resources/docs/sample.md"}'
+
+# 3. 目录批量入库（扫描 .md/.markdown/.html/.htm/.txt）
+curl -X POST http://localhost:8081/rag/ingest/directory \
+  -H "Content-Type: application/json" \
+  -d '{"path":"rag-example/src/main/resources/docs"}'
+
+# 4. 向量检索（验证入库效果）
+curl "http://localhost:8081/rag/search?q=什么是RAG&limit=4"
+
+# 5. RAG 问答（检索增强生成）
+curl -X POST http://localhost:8081/rag/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"什么是 RAG？","limit":4}'
+```
+
+### 入库流程说明
+
+1. **文档加载**：`RagIngestionService` 按扩展名选择 `MarkdownLoader` / `HtmlSimpleLoader` / `TextLoader`，并附加 `source` / `filename` / `title` 等元数据
+2. **分块**：`TokenSizeTextSplitter`（jtokkit `cl100k_base`）按 `chunkSize`（默认 500 token）分块，`chunkSize`/`minChunkSizeChars` 可在 `ai.rag.splitter.*` 调整
+3. **入库**：`MilvusRepository.save()` 按 `batchSize` 分批 → `EmbeddingModel.embed()` 批量向量化 → `Upsert` 写入 Milvus Collection（首次使用自动建 Collection：`id`/`content`/`metadata`/`embedding`，COSINE 向量索引）
+
+### 关键配置
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MILVUS_URI` | `http://localhost:19530` | Milvus 地址 |
+| `MILVUS_COLLECTION` | `solon_rag_demo` | Collection 名（不能用 `-`） |
+| `RAG_EMBEDDING_API_URL` | `http://127.0.0.1:11434/api/embed` | 嵌入服务地址（Ollama 用完整地址） |
+| `RAG_EMBEDDING_MODEL` | `bge-m3:latest` | 嵌入模型 |
+| `RAG_EMBEDDING_PROVIDER` / `STANDARD` | `ollama` | 嵌入方言（空 = 默认 openai） |
+| `RAG_CHUNK_SIZE` | `500` | 分块 token 数 |
+
+> `MilvusRepository` Bean 标记为 `@Lazy`：应用启动不要求 Milvus 在线，首次调用 `/rag/ingest/*` 或 `/rag/search` 时才建连/建集合。
