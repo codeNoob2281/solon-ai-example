@@ -68,12 +68,15 @@ public class RagController {
     /**
      * 目录批量入库（扫描 .md/.markdown/.html/.htm/.txt）
      * <pre>{@code
-     * { "path": "D:/docs" }
+     * {
+     *   "path": "D:/docs",
+     *   "recursive": false   // 是否递归子目录，默认 false
+     * }
      * }</pre>
      */
     @PostMapping("/ingest/directory")
     public IngestResult ingestDirectory(@RequestBody IngestDirectoryRequest request) throws IOException {
-        return ingestionService.ingestDirectory(request.getPath());
+        return ingestionService.ingestDirectory(request.getPath(), request.isRecursive());
     }
 
     /**

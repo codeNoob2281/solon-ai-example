@@ -82,27 +82,49 @@ public class RagIngestionService {
     /**
      * 批量入库一个目录下的所有支持文件
      *
-     * @param path 目录绝对路径（仅扫描一层，不递归）
+     * @param path      目录绝对路径
+     * @param recursive 是否递归扫描子目录（默认 false，仅扫描当前目录一层）
      */
-    public IngestResult ingestDirectory(String path) throws IOException {
+    public IngestResult ingestDirectory(String path, boolean recursive) throws IOException {
         File dir = new File(path);
         if (!dir.isDirectory()) {
             throw new IllegalArgumentException("Not a directory: " + path);
         }
-        File[] files = dir.listFiles();
-        if (files == null || files.length == 0) {
+
+        List<File> files = collectFiles(dir, recursive);
+        if (files.isEmpty()) {
             log.warn("No files found under directory: {}", path);
             return new IngestResult(0, 0, 0);
         }
 
-        Arrays.sort(files);
+        Collections.sort(files);
         List<Document> all = new ArrayList<>();
         for (File f : files) {
-            if (f.isFile() && isSupported(f.getName())) {
-                all.addAll(loadFile(f));
-            }
+            all.addAll(loadFile(f));
         }
         return ingest(all);
+    }
+
+    /**
+     * 收录目录下所有支持的文件（.md/.markdown/.html/.htm/.txt）
+     *
+     * @param dir       起始目录
+     * @param recursive 是否递归进入子目录
+     */
+    private List<File> collectFiles(File dir, boolean recursive) {
+        List<File> result = new ArrayList<>();
+        File[] entries = dir.listFiles();
+        if (entries == null) {
+            return result;
+        }
+        for (File entry : entries) {
+            if (entry.isFile() && isSupported(entry.getName())) {
+                result.add(entry);
+            } else if (recursive && entry.isDirectory()) {
+                result.addAll(collectFiles(entry, true));
+            }
+        }
+        return result;
     }
 
     /**

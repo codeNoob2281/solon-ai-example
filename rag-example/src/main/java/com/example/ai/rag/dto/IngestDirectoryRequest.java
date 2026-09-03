@@ -8,6 +8,9 @@ import lombok.Data;
  */
 @Data
 public class IngestDirectoryRequest {
-    /** 目录绝对路径（递归扫描 .md/.markdown/.html/.htm/.txt 文件） */
+    /** 目录绝对路径 */
     private String path;
+
+    /** 是否递归扫描子目录（默认 false，仅扫描当前目录一层） */
+    private boolean recursive;
 }
