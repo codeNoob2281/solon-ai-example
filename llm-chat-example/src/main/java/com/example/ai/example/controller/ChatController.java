@@ -6,6 +6,9 @@ import com.example.ai.example.dto.CustomAgentRequest;
 import com.example.ai.example.dto.OpenAiRequest;
 import com.example.ai.example.service.ChatMemoryService;
 import com.example.ai.example.service.ChatService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.noear.solon.ai.chat.ChatResponse;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,6 +34,7 @@ import javax.annotation.Resource;
  * POST /chat/videoUnderstanding       视频理解（文本 + 视频 URL，描述视频内容）
  * POST /chat/customAgent              自定义智能体（角色 + 系统指令 + 用户消息），非流式
  */
+@Tag(name = "AI 对话", description = "基于 Solon AI ChatModel 的对话示例接口")
 @RestController
 @RequestMapping("/chat")
 public class ChatController {
@@ -41,6 +45,7 @@ public class ChatController {
     @Resource
     private ChatMemoryService chatMemoryService;
 
+    @Operation(summary = "非流式对话", description = "传入用户消息，等待模型生成后一次性返回完整回复文本")
     @PostMapping("/sendMessage")
     public String sendMessage(@RequestBody OpenAiRequest request) {
         return chatService.chat(request.getMessage());
@@ -63,6 +68,9 @@ public class ChatController {
      * }</pre>
      * 第二次用同一 sessionId 提问"我叫什么名字？"时，AI 能回忆起上文。
      */
+    @Operation(summary = "带记忆的对话",
+            description = "基于 FileChatSession 持久化，同一 sessionId 共享同一份对话记忆，"
+                    + "模型交互时取最近 windowSize（默认 20）条作为上下文")
     @PostMapping("/memory/send")
     public String sendMemoryMessage(@RequestBody ChatMemoryRequest request) {
         return chatMemoryService.chatWithMemory(request.getSessionId(), request.getMessage());
@@ -75,6 +83,9 @@ public class ChatController {
      * - done:    流结束
      * - error:   调用出错
      */
+    @Operation(summary = "流式对话（SSE）",
+            description = "基于 SseEmitter 推送增量文本。SSE 事件：message=每个增量文本块，"
+                    + "done=流结束，error=调用出错")
     @PostMapping(value = "/sendMessageStream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter sendMessageStream(@RequestBody OpenAiRequest request) {
         SseEmitter emitter = new SseEmitter(0L);
@@ -104,6 +115,9 @@ public class ChatController {
      *
      * @see ChatOptionsRequest
      */
+    @Operation(summary = "带 ChatOptions 参数的对话",
+            description = "支持 contextLength / maxTokens / temperature / topP / "
+                    + "reasoningEffort / thinking 等可选参数，详见 ChatOptionsRequest")
     @PostMapping("/sendMessageWithOptions")
     public String sendMessageWithOptions(@RequestBody ChatOptionsRequest request) {
         return chatService.chatWithOptions(request);
@@ -118,6 +132,9 @@ public class ChatController {
      * <p>
      * AI 基于完整上下文回答最终提问。
      */
+    @Operation(summary = "预设对话示例（天气查询场景）",
+            description = "硬编码系统提示词 + 预设历史消息（杭州天气），AI 基于完整上下文回答最终提问"
+                    + "\"下午要带伞吗？\"，无需传参")
     @PostMapping("/presetConversation")
     public String presetConversation() {
         return chatService.presetConversation();
@@ -131,8 +148,12 @@ public class ChatController {
      * <p>
      * 用户只需传入主题，如：?subject=程序员
      */
+    @Operation(summary = "提示词模板示例（讲笑话场景）",
+            description = "系统提示词硬编码，模板 \"给我讲一个关于#{subject}的笑话\" "
+                    + "（ChatMessage.ofUserTmpl + SnEL 变量替换），subject 由查询参数传入")
     @PostMapping("/promptTemplate")
-    public String promptTemplate(@RequestParam String subject) {
+    public String promptTemplate(@Parameter(description = "笑话主题", example = "程序员")
+                                 @RequestParam String subject) {
         return chatService.promptTemplate(subject);
     }
 
@@ -141,6 +162,8 @@ public class ChatController {
      * <p>
      * 硬编码："这是什么动物？" + ImageBlock.ofUrl("https://pic.nximg.cn/file/20210531/10621685_024234407129_2.jpg")
      */
+    @Operation(summary = "图像理解示例",
+            description = "硬编码提问\"这是什么动物？\"+ 图片 URL（ImageBlock.ofUrl），无需传参")
     @PostMapping("/imageUnderstanding")
     public String imageUnderstanding() {
         return chatService.imageUnderstanding();
@@ -152,8 +175,12 @@ public class ChatController {
      * 硬编码："请识别这段音频中是什么动物的叫声？"
      * + AudioBlock.ofUrl("https://cdn.pixabay.com/download/audio/2026/01/24/audio_761a22043a.mp3?filename=dragon-studio-cute-cat-meow-472372.mp3")
      */
+    @Operation(summary = "音频理解示例",
+            description = "硬编码提问\"请识别这段音频中是什么动物的叫声？\"+ 音频 URL（AudioBlock.ofUrl），"
+                    + "理解模型可通过 modelName 指定")
     @PostMapping("/audioUnderstanding")
-    public String audioUnderstanding(@RequestParam(defaultValue = "dots3-note-prev") String modelName) {
+    public String audioUnderstanding(@Parameter(description = "音频理解模型名称", example = "dots3-note-prev")
+                                     @RequestParam(defaultValue = "dots3-note-prev") String modelName) {
         return chatService.audioUnderstanding(modelName);
     }
 
@@ -163,8 +190,12 @@ public class ChatController {
      * 硬编码："请描述这段视频的内容？"
      * + VideoBlock.ofUrl("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
      */
+    @Operation(summary = "视频理解示例",
+            description = "硬编码提问\"请描述这段视频的内容？\"+ 视频 URL（VideoBlock.ofUrl），"
+                    + "理解模型可通过 modelName 指定")
     @PostMapping("/videoUnderstanding")
-    public String videoUnderstanding(@RequestParam(defaultValue = "dots3-note-prev") String modelName) {
+    public String videoUnderstanding(@Parameter(description = "视频理解模型名称", example = "dots3-note-prev")
+                                     @RequestParam(defaultValue = "dots3-note-prev") String modelName) {
         return chatService.videoUnderstanding(modelName);
     }
 
@@ -193,6 +224,9 @@ public class ChatController {
      *         .build();
      * }</pre>
      */
+    @Operation(summary = "自定义智能体对话",
+            description = "传入角色 + 系统指令 + 用户消息构建专属智能体（非流式），"
+                    + "可选覆盖 apiUrl/apiKey/model，不传则复用全局默认配置")
     @PostMapping("/customAgent")
     public String customAgent(@RequestBody CustomAgentRequest request) {
         return chatService.chatAsCustomAgent(request);

@@ -4,6 +4,8 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- 多模块聚合：llm-core / llm-chat-example / rag-example -->
+
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -27,5 +29,21 @@
     <properties>
         <java.version>8</java.version>
         <solon-ai.version>4.0.6</solon-ai.version>
+        <springdoc.version>1.8.0</springdoc.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!--
+              OpenAPI 3 / Swagger 文档（springdoc 1.x 是最后支持 Spring Boot 2.x + Java 8 的分支）
+              Swagger UI: http://localhost:{port}/swagger-ui.html
+              OpenAPI JSON: http://localhost:{port}/v3/api-docs
+            -->
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 </project>
