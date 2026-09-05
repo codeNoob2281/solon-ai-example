@@ -11,7 +11,15 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 import org.springframework.util.StringUtils;
+
+import java.time.Duration;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * RAG 组件装配
@@ -43,17 +51,28 @@ public class RagConfig {
      *   <li>provider/standard = ollama → OllamaEmbeddingDialect（apiUrl 填完整 /api/embed 地址）</li>
      *   <li>provider/standard 为空 → 默认 OpenaiEmbeddingDialect（OpenAI 兼容 /v1/embeddings）</li>
      * </ul>
+     * <p>
+     * 可靠性：应用 {@code timeout-seconds} 请求超时（框架默认 120s，挂死的请求会占住
+     * 入库线程池线程），并包装为 {@link RetryableEmbeddingModel}——向量接口超时/瞬断/限流
+     * 时按指数退避自动重试（{@code retry-max-attempts} / {@code retry-backoff-millis}），
+     * 入库与检索两条路径一并生效。
      */
     @Bean
     public EmbeddingModel ragEmbeddingModel(RagProperties props) {
+        RagProperties.Embedding e = props.getEmbedding();
+
         EmbeddingConfig config = new EmbeddingConfig();
-        config.setApiUrl(props.getEmbedding().getApiUrl());
-        config.setApiKey(props.getEmbedding().getApiKey());
-        config.setProvider(props.getEmbedding().getProvider());
-        config.setStandard(props.getEmbedding().getStandard());
-        config.setModel(props.getEmbedding().getModel());
-        config.setBatchSize(props.getEmbedding().getBatchSize());
-        return EmbeddingModel.of(config).build();
+        config.setApiUrl(e.getApiUrl());
+        config.setApiKey(e.getApiKey());
+        config.setProvider(e.getProvider());
+        config.setStandard(e.getStandard());
+        config.setModel(e.getModel());
+        config.setBatchSize(e.getBatchSize());
+        if (e.getTimeoutSeconds() > 0) {
+            config.setTimeout(Duration.ofSeconds(e.getTimeoutSeconds()));
+        }
+
+        return new RetryableEmbeddingModel(config, e.getRetryMaxAttempts(), e.getRetryBackoffMillis());
     }
 
     /**
@@ -117,5 +136,48 @@ public class RagConfig {
                 s.getMinChunkLengthToEmbed(),
                 s.getMaxChunkCount(),
                 s.isKeepSeparator());
+    }
+
+    /**
+     * 文档入库线程池：批量入库时按"每文档一个任务"提交到该线程池并行处理，
+     * 单线程处理最小维度 = 单个文档（分块 → 向量化 → 写入 Milvus 在同一根线程内完成）。
+     * <p>
+     * 参数来自 {@code ai.rag.ingestion.*}（{@link RagProperties.Ingestion}）：
+     * <ul>
+     *   <li>核心线程数建议参考嵌入服务的并发能力（Ollama 单模型默认近串行推理，调大无收益）</li>
+     *   <li>{@code queue-capacity=0} 时使用 SynchronousQueue：任务不排队直接交接，超过 max 后由提交线程执行</li>
+     *   <li>拒绝策略 CallerRunsPolicy：线程池饱和时由提交线程自己执行任务，天然背压、不丢任务</li>
+     *   <li>非法参数（max &lt; core、keep-alive &lt; 0 等）构建时兜底归一化，保证应用可启动</li>
+     *   <li>容器关闭时调用 {@code shutdown()}（等待已提交任务执行完，不再接收新任务）</li>
+     * </ul>
+     * 说明：分块器、{@code MilvusRepository}（gRPC 客户端）、{@code EmbeddingModel}
+     * （按次调用）均无共享可变状态，任务可安全并发执行。
+     */
+    @Bean(destroyMethod = "shutdown")
+    public ExecutorService ragIngestExecutor(RagProperties props) {
+        RagProperties.Ingestion p = props.getIngestion();
+
+        int corePoolSize = Math.max(1, p.getCorePoolSize());
+        int maxPoolSize = Math.max(corePoolSize, p.getMaxPoolSize());
+        int keepAliveSeconds = Math.max(0, p.getKeepAliveSeconds());
+        String prefix = StringUtils.hasText(p.getThreadNamePrefix())
+                ? p.getThreadNamePrefix() : "rag-ingest-";
+
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                corePoolSize,
+                maxPoolSize,
+                keepAliveSeconds,
+                TimeUnit.SECONDS,
+                p.getQueueCapacity() > 0
+                        ? new LinkedBlockingQueue<Runnable>(p.getQueueCapacity())
+                        : new SynchronousQueue<Runnable>(),
+                new CustomizableThreadFactory(prefix),
+                new ThreadPoolExecutor.CallerRunsPolicy());
+
+        // allowCoreThreadTimeOut 要求 keepAliveTime > 0
+        if (p.isAllowCoreThreadTimeout() && keepAliveSeconds > 0) {
+            executor.allowCoreThreadTimeOut(true);
+        }
+        return executor;
     }
 }

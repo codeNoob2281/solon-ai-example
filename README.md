@@ -270,7 +270,13 @@ curl -X POST http://localhost:8081/rag/ask \
 
 1. **文档加载**：`RagIngestionService` 按扩展名选择 `MarkdownLoader` / `HtmlSimpleLoader` / `TextLoader`，并附加 `source` / `filename` / `title` 等元数据
 2. **分块**：`TokenSizeTextSplitter`（jtokkit `cl100k_base`）按 `chunkSize`（默认 500 token）分块，`chunkSize`/`minChunkSizeChars` 可在 `ai.rag.splitter.*` 调整
-3. **入库**：`MilvusRepository.save()` 按 `batchSize` 分批 → `EmbeddingModel.embed()` 批量向量化 → `Upsert` 写入 Milvus Collection（首次使用自动建 Collection：`id`/`content`/`metadata`/`embedding`，COSINE 向量索引）
+3. **入库**：`MilvusRepository.save()` 按 `batchSize` 分批 → `EmbeddingModel.embed()` 批量向量化 → `Upsert` 写入 Milvus Collection（首次使用自动建 Collection：`id`/`content`/`metadata`/`embedding`，COSINE 向量索引），每完成一批通过 `progressCallback` 打印进度日志
+
+> **并行入库**：多文档时按"单线程处理最小维度 = 单个文档"提交到可配置线程池（`ai.rag.ingestion.*`），
+> 一个文档的 分块 → 向量化 → 写入 在同一根线程内完成，各文档并行处理以摊平 embedding 网络耗时；
+> 任一文档失败会取消未开始的任务并抛出原始异常（与串行语义一致）。单文档直接在调用线程处理。
+> 嵌入请求带超时与指数退避重试（`ai.rag.embedding.retry-*`）：接口超时/瞬断/限流时自动重试，
+> 只重试失败的批次（入库与检索两条路径均生效）。
 
 ### 关键配置
 
@@ -281,6 +287,14 @@ curl -X POST http://localhost:8081/rag/ask \
 | `RAG_EMBEDDING_API_URL` | `http://127.0.0.1:11434/api/embed` | 嵌入服务地址（Ollama 用完整地址） |
 | `RAG_EMBEDDING_MODEL` | `bge-m3:latest` | 嵌入模型 |
 | `RAG_EMBEDDING_PROVIDER` / `STANDARD` | `ollama` | 嵌入方言（空 = 默认 openai） |
+| `RAG_EMBEDDING_TIMEOUT_SECONDS` | `60` | 嵌入请求超时秒数（框架默认 120） |
+| `RAG_EMBEDDING_RETRY_MAX_ATTEMPTS` | `3` | 嵌入失败最大尝试次数（含首次，`1` = 不重试） |
+| `RAG_EMBEDDING_RETRY_BACKOFF_MILLIS` | `1000` | 重试退避基数毫秒（按 2ⁿ 指数递增） |
 | `RAG_CHUNK_SIZE` | `500` | 分块 token 数 |
+| `RAG_INGEST_CORE_POOL_SIZE` | `4` | 并行入库核心线程数（参考嵌入服务并发能力） |
+| `RAG_INGEST_MAX_POOL_SIZE` | `8` | 并行入库最大线程数 |
+| `RAG_INGEST_QUEUE_CAPACITY` | `256` | 任务队列容量（`0` = SynchronousQueue 直接交接） |
+| `RAG_INGEST_KEEP_ALIVE_SECONDS` | `60` | 空闲线程存活秒数 |
+| `RAG_INGEST_THREAD_NAME_PREFIX` | `rag-ingest-` | 线程名前缀 |
 
 > `MilvusRepository` Bean 标记为 `@Lazy`：应用启动不要求 Milvus 在线，首次调用 `/rag/ingest/*` 或 `/rag/search` 时才建连/建集合。

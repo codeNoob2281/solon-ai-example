@@ -25,6 +25,11 @@ ai:
       provider: ${RAG_EMBEDDING_PROVIDER:ollama}
       standard: ${RAG_EMBEDDING_STANDARD:ollama}
       batch-size: ${RAG_EMBEDDING_BATCH_SIZE:10}
+      # 请求超时秒数（框架默认 120s；挂死的请求会占住入库线程池线程）
+      timeout-seconds: ${RAG_EMBEDDING_TIMEOUT_SECONDS:60}
+      # 嵌入失败重试：最大尝试次数（含首次，1 = 不重试）与首次退避毫秒（之后按 2^n 指数递增）
+      retry-max-attempts: ${RAG_EMBEDDING_RETRY_MAX_ATTEMPTS:3}
+      retry-backoff-millis: ${RAG_EMBEDDING_RETRY_BACKOFF_MILLIS:1000}
 
     milvus:
       # 本地 Milvus Standalone（docker 默认端口 19530）
@@ -43,6 +48,16 @@ ai:
       min-chunk-length-to-embed: 5
       max-chunk-count: 1000
       keep-separator: true
+
+    # 文档并行入库线程池：单线程处理最小维度 = 单个文档（分块 → 向量化 → 写入一个任务内完成）
+    # 并行度建议参考嵌入服务的并发能力（Ollama 单模型默认近串行推理，调大无收益）
+    ingestion:
+      core-pool-size: ${RAG_INGEST_CORE_POOL_SIZE:4}
+      max-pool-size: ${RAG_INGEST_MAX_POOL_SIZE:8}
+      queue-capacity: ${RAG_INGEST_QUEUE_CAPACITY:256}   # 0 = SynchronousQueue 直接交接
+      keep-alive-seconds: ${RAG_INGEST_KEEP_ALIVE_SECONDS:60}
+      thread-name-prefix: ${RAG_INGEST_THREAD_NAME_PREFIX:rag-ingest-}
+      allow-core-thread-timeout: ${RAG_INGEST_ALLOW_CORE_THREAD_TIMEOUT:true}
 
 logging:
   level:

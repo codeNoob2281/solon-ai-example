@@ -41,7 +41,7 @@ solon-ai-example/
 ## 关键约定
 
 1. **新增模块**：需在父 POM `<modules>` 中加入，并保证 `mvn clean install -DskipTests` 全量通过。
-2. **.env 配置**：由 `llm-core` 的 `EnvFileLoader` 在 `SpringApplication.run()` 之前把 `.env` 中的**全部键值对**注入 System properties（无需维护白名单），新增环境变量键无需改动加载器；敏感键（含 KEY/TOKEN/PASSWORD/SECRET）日志自动脱敏。
+2. **.env 配置**：由 `llm-core` 的 `EnvFileLoader` 在 `SpringApplication.run()` 之前把 `.env` 中的**全部键值对**注入 System properties（无需维护白名单），新增环境变量键无需改动加载器；敏感键（含 KEY/TOKEN/PASSWORD/SECRET）日志自动脱敏。application.yml 中出现的 `${KEY:默认值}` 占位符须**同步登记**到根目录 `.env` 与 `.env.example`（两文件保持同键：`.env` 填实际值、`.env.example` 填默认值作模板），否则缺键时静默回落 application.yml 默认值。现有键组：`SERVER_PORT`、`AI_*`（ChatModel）、`RAG_EMBEDDING_*`（嵌入）、`RAG_CHUNK_*`（分块）、`MILVUS_*`（连接/Collection）、`RAG_INGEST_*`（并行入库线程池：`RAG_INGEST_CORE_POOL_SIZE` / `RAG_INGEST_MAX_POOL_SIZE` / `RAG_INGEST_QUEUE_CAPACITY` / `RAG_INGEST_KEEP_ALIVE_SECONDS` / `RAG_INGEST_THREAD_NAME_PREFIX` / `RAG_INGEST_ALLOW_CORE_THREAD_TIMEOUT`，对应 `RagProperties.Ingestion`）。
 3. **Lombok**：DTO / 配置属性类使用 `@Data`；服务类使用构造器注入。
 4. **RAG 延迟装配**：`MilvusClientV2` 构造会发起阻塞的 `Connect()` RPC，`MilvusRepository` 构造会初始化（建）Collection。二者 Bean 及服务注入点均使用 `@Lazy`，使应用启动不依赖 Milvus 在线，首次使用知识库时才建连/建集合。
 5. **RAG 技术栈**：Solon AI 4.0.6（`solon-ai-repo-milvus` / `solon-ai-load-markdown` / `solon-ai-load-html`），嵌入默认 Ollama `bge-m3`（provider/standard=ollama，apiUrl 用完整 `/api/embed` 地址），检索走 `MilvusRepository`，问答复用 `llm-core` 的 `ChatModel` + `ChatMessage.ofUserAugment`。

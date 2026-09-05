@@ -12,6 +12,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   <li>milvus：Milvus 连接（对应 milvus-sdk-java 的 {@code io.milvus.v2.client.ConnectConfig}）</li>
  *   <li>repository：知识库 Collection 名</li>
  *   <li>splitter：文本分块参数（TokenSizeTextSplitter）</li>
+ *   <li>ingestion：文档并行入库线程池参数（任务粒度 = 单个文档）</li>
  * </ul>
  * application.yml 中的 ${RAG_*:默认值} 占位符优先从 .env（经 EnvFileLoader）或系统环境变量解析。
  */
@@ -23,6 +24,7 @@ public class RagProperties {
     private Milvus milvus = new Milvus();
     private Repository repository = new Repository();
     private Splitter splitter = new Splitter();
+    private Ingestion ingestion = new Ingestion();
 
     /**
      * 嵌入模型配置
@@ -41,6 +43,12 @@ public class RagProperties {
         private String standard = "ollama";
         /** 嵌入批次大小 */
         private int batchSize = 10;
+        /** 嵌入请求超时秒数（<=0 时用框架默认 120s）；挂死的请求会占住入库线程池线程，建议显式配置 */
+        private int timeoutSeconds = 60;
+        /** 嵌入失败最大尝试次数（含首次；1 = 不重试）。超时/瞬断/限流（429）等瞬态错误适用 */
+        private int retryMaxAttempts = 3;
+        /** 首次重试退避毫秒数，之后按 2^n 指数递增 */
+        private long retryBackoffMillis = 1000;
     }
 
     /**
@@ -84,5 +92,25 @@ public class RagProperties {
         private int maxChunkCount = 1000;
         /** 保留分隔符 */
         private boolean keepSeparator = true;
+    }
+
+    /**
+     * 文档并行入库线程池参数（单线程处理最小维度 = 单个文档：
+     * 一个文档的 分块 → 向量化 → 写入 在同一任务内完成，不跨文档拆分）
+     */
+    @Data
+    public static class Ingestion {
+        /** 核心线程数（建议参考嵌入服务的并发能力，Ollama 单模型默认近串行推理，过大无收益） */
+        private int corePoolSize = 4;
+        /** 最大线程数（小于 core-pool-size 时构建处会兜底归一化） */
+        private int maxPoolSize = 8;
+        /** 任务队列容量；0 表示用 SynchronousQueue 直接交接（任务不排队，超过 max 由提交线程执行） */
+        private int queueCapacity = 256;
+        /** 空闲线程存活秒数 */
+        private int keepAliveSeconds = 60;
+        /** 线程名前缀 */
+        private String threadNamePrefix = "rag-ingest-";
+        /** 核心线程是否参与空闲回收（需 keep-alive-seconds > 0） */
+        private boolean allowCoreThreadTimeout = true;
     }
 }
