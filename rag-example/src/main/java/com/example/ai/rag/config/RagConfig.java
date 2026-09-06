@@ -1,11 +1,11 @@
 package com.example.ai.rag.config;
 
+import com.example.ai.rag.repository.MilvusChildRepository;
 import io.milvus.v2.client.ConnectConfig;
 import io.milvus.v2.client.MilvusClientV2;
 import org.noear.solon.ai.embedding.EmbeddingConfig;
 import org.noear.solon.ai.embedding.EmbeddingModel;
 import org.noear.solon.ai.rag.DocumentSplitter;
-import org.noear.solon.ai.rag.repository.MilvusRepository;
 import org.noear.solon.ai.rag.splitter.TokenSizeTextSplitter;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -22,20 +22,23 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * RAG 组件装配
+ * RAG 组件装配（父子分段模式）
  * <p>
- * 对应参考文档《solon-ai-repo-milvus》的构建示例：
+ * 核心组件：
  * <pre>{@code
- * EmbeddingModel  = EmbeddingModel.of(config).build()
- * ConnectConfig   = ConnectConfig.builder().uri(...).build()
- * MilvusClientV2  = new MilvusClientV2(connectConfig)
- * MilvusRepository= MilvusRepository.builder(embeddingModel, client).build()
+ * EmbeddingModel        = RetryableEmbeddingModel（超时/瞬断自动重试）
+ * ConnectConfig         = ConnectConfig.builder().uri(...).build()
+ * MilvusClientV2        = new MilvusClientV2(connectConfig)
+ * MilvusChildRepository = 子块向量仓库（自建集合：parent_id 独立字段）
+ * parentSplitter        = 父块分割器（父块存 MySQL 分块表）
+ * childSplitter         = 子块分割器（子块存 Milvus）
  * }</pre>
  * <p>
  * 说明：
  * <ul>
- *   <li>{@code MilvusRepository} 构造时即调用 initRepository()（不存在则自动建 Collection），
- *       因此标记为 {@link Lazy}：应用启动不要求 Milvus 在线，首次使用知识库时才建连/建集合。</li>
+ *   <li>{@code MilvusChildRepository} 构造时即调用 initRepository()（不存在则自动建集合，
+ *       已存在则校验结构），因此标记为 {@link Lazy}：应用启动不要求 Milvus 在线，
+ *       首次使用知识库时才建连/建集合。</li>
  *   <li>{@code MilvusClientV2} 通过 {@code destroyMethod="close"} 在容器关闭时释放连接。</li>
  * </ul>
  */
@@ -111,28 +114,44 @@ public class RagConfig {
     }
 
     /**
-     * 可存储知识库（可检索 + 可存储），注入统一接口 {@code org.noear.solon.ai.rag.RepositoryStorable}。
-     * 首次使用时自动建 Collection（字段：id/content/metadata/embedding，COSINE 向量索引）。
+     * 子块向量仓库（父子分段模式，自建集合结构：parent_id 独立标量字段 + TRIE 标量索引）。
+     * <p>
+     * 不用 solon 内置 {@code MilvusRepository}（其 Collection 结构固定，无法扩展独立字段），
+     * 见 {@link MilvusChildRepository}。首次使用时自动建集合，并校验已存在集合的结构兼容性，
+     * 因此标记为 {@link Lazy}：应用启动不要求 Milvus 在线，首次使用知识库时才建连/建集合。
      */
     @Bean
     @Lazy
-    public MilvusRepository milvusRepository(EmbeddingModel ragEmbeddingModel,
-                                             MilvusClientV2 milvusClientV2,
-                                             RagProperties props) {
-        return MilvusRepository.builder(ragEmbeddingModel, milvusClientV2)
-                .collectionName(props.getRepository().getCollectionName())
-                .build();
+    public MilvusChildRepository milvusChildRepository(EmbeddingModel ragEmbeddingModel,
+                                                       MilvusClientV2 milvusClientV2,
+                                                       RagProperties props) {
+        return new MilvusChildRepository(ragEmbeddingModel, milvusClientV2,
+                props.getRepository().getCollectionName());
     }
 
     /**
-     * 文档分割器：基于 token 数分块（jtokkit cl100k_base）
+     * 父块分割器：文档 → 父块（整体存 MySQL 分块表 kb_chunk，检索命中后进入 LLM 上下文）
      */
     @Bean
-    public DocumentSplitter documentSplitter(RagProperties props) {
+    public DocumentSplitter parentSplitter(RagProperties props) {
         RagProperties.Splitter s = props.getSplitter();
         return new TokenSizeTextSplitter(
-                s.getChunkSize(),
-                s.getMinChunkSizeChars(),
+                s.getParentChunkSize(),
+                s.getParentMinChunkSizeChars(),
+                s.getMinChunkLengthToEmbed(),
+                s.getMaxChunkCount(),
+                s.isKeepSeparator());
+    }
+
+    /**
+     * 子块分割器：父块 → 子块（向量化后存 Milvus，粒度小、召回准，命中后映射回父块）
+     */
+    @Bean
+    public DocumentSplitter childSplitter(RagProperties props) {
+        RagProperties.Splitter s = props.getSplitter();
+        return new TokenSizeTextSplitter(
+                s.getChildChunkSize(),
+                s.getChildMinChunkSizeChars(),
                 s.getMinChunkLengthToEmbed(),
                 s.getMaxChunkCount(),
                 s.isKeepSeparator());
@@ -150,8 +169,8 @@ public class RagConfig {
      *   <li>非法参数（max &lt; core、keep-alive &lt; 0 等）构建时兜底归一化，保证应用可启动</li>
      *   <li>容器关闭时调用 {@code shutdown()}（等待已提交任务执行完，不再接收新任务）</li>
      * </ul>
-     * 说明：分块器、{@code MilvusRepository}（gRPC 客户端）、{@code EmbeddingModel}
-     * （按次调用）均无共享可变状态，任务可安全并发执行。
+     * 说明：分割器、{@code MilvusClientV2}（gRPC 客户端）、{@code MyBatis Mapper}、
+     * {@code EmbeddingModel}（按次调用）均无共享可变状态（或线程安全），任务可安全并发执行。
      */
     @Bean(destroyMethod = "shutdown")
     public ExecutorService ragIngestExecutor(RagProperties props) {

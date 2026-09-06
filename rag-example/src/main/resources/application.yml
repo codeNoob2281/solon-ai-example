@@ -5,6 +5,15 @@ spring:
   application:
     name: rag-example
 
+  # MySQL 数据源：知识库文档表（kb_document）+ 父块表（kb_chunk），MyBatis-Plus 持久层
+  # URL 默认带 createDatabaseIfNotExist=true：库不存在自动创建；
+  # Hikari 懒连接 + 未启用 sql.init：应用启动不要求 MySQL 在线，
+  # 首次使用知识库时才建连/建表（DDL 见 resources/sql/knowledge_base.sql，与懒建表语句一致）
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/rag_demo?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+
 # Solon AI ChatModel 自动装配配置（由 llm-core starter 提供，用于 RAG 问答生成）
 ai:
   chat:
@@ -40,16 +49,23 @@ ai:
       db-name: ${MILVUS_DB_NAME:}
 
     repository:
+      # 子块向量集合（自建结构：id / parent_id 独立字段 / content / metadata / embedding）
       collection-name: ${MILVUS_COLLECTION:solon_rag_demo}
 
+    # 父子分段参数（父/子均用 TokenSizeTextSplitter，jtokkit cl100k_base）：
+    # 父块存 MySQL 分块表（检索命中后进 LLM 上下文，粒度大、上下文完整），
+    # 子块存 Milvus（向量检索，粒度小、召回准）
     splitter:
-      chunk-size: ${RAG_CHUNK_SIZE:500}
-      min-chunk-size-chars: ${RAG_MIN_CHUNK_CHARS:300}
+      parent-chunk-size: ${RAG_PARENT_CHUNK_SIZE:1000}
+      parent-min-chunk-size-chars: ${RAG_PARENT_MIN_CHARS:600}
+      child-chunk-size: ${RAG_CHILD_CHUNK_SIZE:200}
+      child-min-chunk-size-chars: ${RAG_CHILD_MIN_CHARS:50}
       min-chunk-length-to-embed: 5
       max-chunk-count: 1000
       keep-separator: true
 
-    # 文档并行入库线程池：单线程处理最小维度 = 单个文档（分块 → 向量化 → 写入一个任务内完成）
+    # 文档并行入库线程池：单线程处理最小维度 = 单个文档
+    # （父子切分 → MySQL 落库 → 子块向量化 → 写入 Milvus 一个任务内完成）
     # 并行度建议参考嵌入服务的并发能力（Ollama 单模型默认近串行推理，调大无收益）
     ingestion:
       core-pool-size: ${RAG_INGEST_CORE_POOL_SIZE:4}

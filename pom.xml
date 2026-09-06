@@ -29,6 +29,8 @@
     <properties>
         <java.version>8</java.version>
         <solon-ai.version>4.0.6</solon-ai.version>
+        <!-- solon-ai 4.0.6 内部 pin 的 milvus-sdk-java 版本，保持一致 -->
+        <milvus-sdk.version>2.6.3</milvus-sdk.version>
         <springdoc.version>1.8.0</springdoc.version>
     </properties>
 

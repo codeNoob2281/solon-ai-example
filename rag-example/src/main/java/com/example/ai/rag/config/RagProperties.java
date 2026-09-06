@@ -10,8 +10,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <ul>
  *   <li>embedding：嵌入模型（默认 Ollama bge-m3，可切换 OpenAI 兼容接口）</li>
  *   <li>milvus：Milvus 连接（对应 milvus-sdk-java 的 {@code io.milvus.v2.client.ConnectConfig}）</li>
- *   <li>repository：知识库 Collection 名</li>
- *   <li>splitter：文本分块参数（TokenSizeTextSplitter）</li>
+ *   <li>repository：知识库 Collection 名（子块向量集合，含 parent_id 独立字段）</li>
+ *   <li>splitter：父子分段参数（父块存 MySQL / 子块存 Milvus，均用 TokenSizeTextSplitter）</li>
  *   <li>ingestion：文档并行入库线程池参数（任务粒度 = 单个文档）</li>
  * </ul>
  * application.yml 中的 ${RAG_*:默认值} 占位符优先从 .env（经 EnvFileLoader）或系统环境变量解析。
@@ -78,17 +78,25 @@ public class RagProperties {
     }
 
     /**
-     * 文本分块参数（TokenSizeTextSplitter）
+     * 文本分块参数（父子分段模式：父块存 MySQL 分块表，父块再切子块存 Milvus）
+     * <p>
+     * 父/子两级均使用 {@code TokenSizeTextSplitter}（jtokkit cl100k_base）：
+     * chunkSize 为目标 token 数；minChunkSizeChars 仅控制「句子边界回切」的位置；
+     * minChunkLengthToEmbed 以下的内容丢弃。
      */
     @Data
     public static class Splitter {
-        /** 每块目标 token 数 */
-        private int chunkSize = 500;
-        /** 块最小字符数（低于该值不输出） */
-        private int minChunkSizeChars = 300;
-        /** 最小嵌入字符长度 */
+        /** 父块目标 token 数（父块整体存 MySQL，作为检索命中后进入 LLM 上下文的完整段落） */
+        private int parentChunkSize = 1000;
+        /** 父块句子边界回切最小字符数（在块内最后一个标点回切时，要求回切点超过该字符数） */
+        private int parentMinChunkSizeChars = 600;
+        /** 子块目标 token 数（子块用于向量化检索，粒度小、召回准） */
+        private int childChunkSize = 200;
+        /** 子块句子边界回切最小字符数 */
+        private int childMinChunkSizeChars = 50;
+        /** 最小嵌入字符长度（低于该值的块不输出） */
         private int minChunkLengthToEmbed = 5;
-        /** 单文档最大分块数 */
+        /** 单文本最大分块数（父块切分与子块切分各自生效） */
         private int maxChunkCount = 1000;
         /** 保留分隔符 */
         private boolean keepSeparator = true;

@@ -24,18 +24,18 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * RAG 示例接口
+ * RAG 示例接口（父子分段模式）
  * <pre>
- * POST /rag/ingest/text        原始文本入库（加载 → 分块 → 写入 Milvus）
+ * POST /rag/ingest/text        原始文本入库（加载 → 父块切分存 MySQL → 子块切分向量化存 Milvus）
  * POST /rag/ingest/file        服务器单文件入库（支持 md/html/txt）
  * POST /rag/ingest/directory   目录批量入库
- * GET  /rag/search?q=xxx       向量检索（验证入库效果，可选相似度阈值）
- * POST /rag/ask                检索增强问答（RAG）
+ * GET  /rag/search?q=xxx       子块向量检索 → 父块映射（验证入库效果，可选相似度阈值）
+ * POST /rag/ask                检索增强问答（RAG，父块内容进 LLM 上下文）
  * </pre>
- * 先实现"文档加载、分块、入库"（ingest 系列），检索/问答用于验证入库结果。
+ * 数据分布：父块存 MySQL（kb_document + kb_chunk），子块存 Milvus（独立字段 parent_id 关联父块）。
  */
 @Slf4j
-@Tag(name = "RAG 知识库", description = "文档加载 → 分块 → Milvus 入库 → 向量检索 → 检索增强问答")
+@Tag(name = "RAG 知识库", description = "文档加载 → 父块切分存 MySQL → 子块切分存 Milvus（parent_id 关联）→ 子块检索映射父块 → 检索增强问答")
 @RestController
 @RequestMapping("/rag")
 public class RagController {
@@ -56,7 +56,7 @@ public class RagController {
      * }</pre>
      */
     @Operation(summary = "原始文本入库",
-            description = "加载原始文本 → 分块 → 向量化 → 写入 Milvus，返回文档数/块数/耗时")
+            description = "加载原始文本 → 父块切分存 MySQL → 子块切分向量化存 Milvus（parent_id 关联父块），返回文档数/父块数/子块数/耗时")
     @PostMapping("/ingest/text")
     public IngestResult ingestText(@RequestBody IngestTextRequest request) throws IOException {
         return ingestionService.ingestText(request.getText(), request.getTitle());
@@ -93,12 +93,13 @@ public class RagController {
     }
 
     /**
-     * 向量检索：GET /rag/search?q=问题&limit=4&similarityThreshold=0.5
-     * <p>相似度阈值可选（0~1），不传时用框架默认值 0.4
+     * 子块向量检索 → 父块映射：GET /rag/search?q=问题&limit=4&similarityThreshold=0.5
+     * <p>相似度阈值可选（0~1），不传时用框架默认值 0.4；
+     * 返回结果为映射后的父块（content = 父块内容，score = 命中子块最高相似度）
      */
-    @Operation(summary = "向量检索",
-            description = "按相似度倒序返回命中知识条目，用于验证入库效果；"
-                    + "similarityThreshold 可选（0~1），不传时用框架默认值 0.4")
+    @Operation(summary = "子块向量检索（返回映射后的父块）",
+            description = "按相似度阈值 + limit 从 Milvus 检索子块 → 子块映射父块 → 按最高子块相似度倒序返回父块，"
+                    + "用于验证入库效果；similarityThreshold 可选（0~1），不传时用框架默认值 0.4")
     @GetMapping("/search")
     public List<SearchHit> search(@Parameter(description = "检索问题", required = true, example = "什么是 RAG？")
                                   @RequestParam String q,
@@ -110,14 +111,16 @@ public class RagController {
     }
 
     /**
-     * RAG 问答：检索（相似度倒序）→ 系统提示词（智能客服）+ 用户提示词模版 → ChatModel 生成
+     * RAG 问答：检索子块（相似度倒序）→ 映射父块（父块内容进 LLM 上下文）
+     * → 系统提示词（智能客服）+ 用户提示词模版 → ChatModel 生成
      * <pre>{@code
      * { "question": "问题", "limit": 4, "similarityThreshold": 0.5 }
      * }</pre>
-     * <p>similarityThreshold 可选（0~1），不传时用框架默认值 0.4
+     * <p>similarityThreshold 可选（0~1），不传时用框架默认值 0.4；limit 为子块检索条数
      */
     @Operation(summary = "检索增强问答（RAG）",
-            description = "检索（相似度倒序）→ 系统提示词（智能客服）+ 用户提示词模版 → ChatModel 生成回答；"
+            description = "检索子块（相似度阈值 + limit）→ 子块映射父块 → 父块内容进 LLM 上下文"
+                    + "→ 系统提示词（智能客服）+ 用户提示词模版 → 生成回答；"
                     + "similarityThreshold 可选（0~1），不传时用框架默认值 0.4")
     @PostMapping("/ask")
     public String ask(@RequestBody AskRequest request) throws IOException {

@@ -13,7 +13,7 @@ import java.util.List;
  * <p>
  * 覆盖 {@link EmbeddingModel} 的两个调用入口（均被本项目的使用方触达）：
  * <ul>
- *   <li>{@link #embed(List)}：{@code MilvusRepository.save} 按批向量化（入库路径）</li>
+ *   <li>{@link #embed(List)}：{@code MilvusChildRepository.save} 按批向量化（入库路径）</li>
  *   <li>{@link #embed(String)}：{@code dimensions()} 与检索时的查询向量（搜索/问答路径）</li>
  * </ul>
  * 两类瞬态错误都会触发重试：网络层 {@link IOException}（含超时）与 API 层
