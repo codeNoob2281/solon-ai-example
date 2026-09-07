@@ -5,6 +5,7 @@ import com.example.ai.example.dto.ChatOptionsRequest;
 import com.example.ai.example.dto.CustomAgentRequest;
 import org.noear.solon.ai.chat.ChatConfig;
 import org.noear.solon.ai.chat.ChatModel;
+import org.noear.solon.ai.chat.ChatRequestDesc;
 import org.noear.solon.ai.chat.content.AudioBlock;
 import org.noear.solon.ai.chat.content.ImageBlock;
 import org.noear.solon.ai.chat.content.VideoBlock;
@@ -39,11 +40,19 @@ public class ChatService {
     /**
      * 流式对话，返回 AI 响应事件流（Reactor Flux）。
      * <p>
-     * 4.1 起流式 API 返回 {@code Flux<ChatEvent>}：正文增量按 {@code TEXT_DELTA}
-     * 过滤并读取 {@code getText()}，完整终态从 {@code RESPONSE_END.getResponse()} 读取。
+     * 4.1 起流式 API 返回 {@code Flux<ChatEvent>}：正文增量按 {@code TEXT_DELTA}、
+     * 思考增量按 {@code THINKING_DELTA} 过滤并读取 {@code getText()}，
+     * 完整终态从 {@code RESPONSE_END.getResponse()} 读取。
+     *
+     * @param thinking 思考模式开关：{@code true} 开启思考、{@code false} 显式关闭思考，
+     *                 {@code null} 时不设置该参数（请求不携带 thinking，由模型/供应商默认行为决定）
      */
-    public Flux<ChatEvent> stream(String userMessage) {
-        return chatModel.prompt(userMessage).stream();
+    public Flux<ChatEvent> stream(String userMessage, Boolean thinking) {
+        ChatRequestDesc request = chatModel.prompt(userMessage);
+        if (thinking != null) {
+            request.options(op -> op.thinking(thinking));
+        }
+        return request.stream();
     }
 
     /**

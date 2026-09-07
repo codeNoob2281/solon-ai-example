@@ -112,17 +112,20 @@ curl -X POST http://localhost:8080/chat/sendMessage \
 
 响应：直接返回 AI 回复文本。
 
-### 流式对话（SSE）
+### 流式对话（SSE，含思考内容）
 
 ```bash
 curl -N -X POST http://localhost:8080/chat/sendMessageStream \
   -H "Content-Type: application/json" \
-  -d '{"message": "你好，请用一句话介绍自己"}'
+  -d '{"message": "你好，请用一句话介绍自己", "thinking": true}'
 ```
 
 响应为 `text/event-stream`，逐块推送：
 
 ```
+event: thinking
+data: 用户想要一句简洁的自我介绍……
+
 event: message
 data: 你好！
 
@@ -134,11 +137,12 @@ data:
 ```
 
 SSE 事件说明：
-- `message`: 每个增量文本块（`data` 为该块内容）
+- `thinking`: 每个思考增量块（需模型支持思考；请求体 `thinking`：`true`=开启思考，`false`=关闭思考，不传=请求不携带该参数，由模型默认行为决定）
+- `message`: 每个增量正文块（`data` 为该块内容）
 - `done`: 流结束
 - `error`: 调用出错
 
-流式原理：`ChatService.stream()` 返回 Solon AI 4.1 的 `Flux<ChatEvent>`（Reactor），控制器过滤 `TEXT_DELTA` 事件投影正文增量后，通过 Spring MVC 的 `SseEmitter` 推送给客户端，无需引入 WebFlux。
+流式原理：`ChatService.stream()` 返回 Solon AI 4.1 的 `Flux<ChatEvent>`（Reactor），控制器将 `THINKING_DELTA` 投影为 `thinking` 事件、`TEXT_DELTA` 投影为 `message` 事件后，通过 Spring MVC 的 `SseEmitter` 推送给客户端，无需引入 WebFlux。
 
 ### 音频理解（识别动物叫声）
 

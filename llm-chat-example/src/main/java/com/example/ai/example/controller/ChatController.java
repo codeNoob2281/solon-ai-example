@@ -25,7 +25,7 @@ import javax.annotation.Resource;
 /**
  * AI 对话接口
  * POST /chat/sendMessage              非流式，返回完整文本
- * POST /chat/sendMessageStream        流式，返回 SSE 事件流
+ * POST /chat/sendMessageStream        流式，返回 SSE 事件流（thinking 思考增量 + message 正文增量）
  * POST /chat/memory/send              带记忆的对话（FileChatSession 持久化，窗口大小 20）
  * POST /chat/sendMessageWithOptions   带 ChatOptions 参数，非流式
  * POST /chat/presetConversation      预设对话（系统提示词 + 历史消息）
@@ -78,27 +78,34 @@ public class ChatController {
     }
 
     /**
-     * 流式对话：基于 SseEmitter 推送增量文本。
+     * 流式对话：基于 SseEmitter 推送思考与正文增量。
      * <p>
-     * 4.1 ChatEvent 模型：只投影正文增量（TEXT_DELTA 且 hasText），
-     * 完整终态从 RESPONSE_END.getResponse() 读取（此处仅做文本转发）。
+     * 4.1 ChatEvent 模型：思考增量按 THINKING_DELTA、正文增量按 TEXT_DELTA 投影
+     * （hasText 过滤空负载），完整终态从 RESPONSE_END.getResponse() 读取（此处仅做文本转发）。
      * SSE 事件：
-     * - message: 每个增量文本块
-     * - done:    流结束
-     * - error:   调用出错（4.1 中 ERROR 事件与 onError 表示同一次失败，这里统一走 onError 通道）
+     * - thinking: 每个思考增量块（需模型支持思考；请求体 thinking：true=开启，false=关闭，不传=模型默认）
+     * - message:  每个正文增量块
+     * - done:     流结束
+     * - error:    调用出错（4.1 中 ERROR 事件与 onError 表示同一次失败，这里统一走 onError 通道）
      */
-    @Operation(summary = "流式对话（SSE）",
-            description = "基于 SseEmitter 推送增量文本。SSE 事件：message=每个增量文本块，"
-                    + "done=流结束，error=调用出错")
+    @Operation(summary = "流式对话（SSE，含思考内容）",
+            description = "基于 SseEmitter 推送思考与正文增量。SSE 事件：thinking=思考增量块，"
+                    + "message=正文增量块，done=流结束，error=调用出错；"
+                    + "请求体 thinking：true=开启思考，false=关闭思考，不传=模型默认（需模型支持思考）")
     @PostMapping(value = "/sendMessageStream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter sendMessageStream(@RequestBody OpenAiRequest request) {
         SseEmitter emitter = new SseEmitter(0L);
 
-        chatService.stream(request.getMessage())
-                .filter(event -> event.is(ChatEventType.TEXT_DELTA) && event.hasText())
-                .map(ChatEvent::getText)
+        chatService.stream(request.getMessage(), request.getThinking())
+                .filter(event -> event.is(ChatEventType.TEXT_DELTA, ChatEventType.THINKING_DELTA) && event.hasText())
                 .subscribe(
-                        text -> sendMessage(emitter, text),
+                        event -> {
+                            if (event.is(ChatEventType.THINKING_DELTA)) {
+                                sendThinking(emitter, event.getText());
+                            } else {
+                                sendMessage(emitter, event.getText());
+                            }
+                        },
                         error -> sendError(emitter, error),
                         () -> complete(emitter)
                 );
@@ -236,6 +243,14 @@ public class ChatController {
     @PostMapping("/customAgent")
     public String customAgent(@RequestBody CustomAgentRequest request) {
         return chatService.chatAsCustomAgent(request);
+    }
+
+    private void sendThinking(SseEmitter emitter, String text) {
+        try {
+            emitter.send(SseEmitter.event().name("thinking").data(text));
+        } catch (Exception e) {
+            emitter.completeWithError(e);
+        }
     }
 
     private void sendMessage(SseEmitter emitter, String text) {
