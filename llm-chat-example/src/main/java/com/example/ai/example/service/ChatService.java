@@ -5,10 +5,10 @@ import com.example.ai.example.dto.ChatOptionsRequest;
 import com.example.ai.example.dto.CustomAgentRequest;
 import org.noear.solon.ai.chat.ChatConfig;
 import org.noear.solon.ai.chat.ChatModel;
-import org.noear.solon.ai.chat.ChatResponse;
 import org.noear.solon.ai.chat.content.AudioBlock;
 import org.noear.solon.ai.chat.content.ImageBlock;
 import org.noear.solon.ai.chat.content.VideoBlock;
+import org.noear.solon.ai.chat.event.ChatEvent;
 import org.noear.solon.ai.chat.message.ChatMessage;
 import reactor.core.publisher.Flux;
 
@@ -37,9 +37,12 @@ public class ChatService {
     }
 
     /**
-     * 流式对话，返回 AI 响应流（Reactor Flux）
+     * 流式对话，返回 AI 响应事件流（Reactor Flux）。
+     * <p>
+     * 4.1 起流式 API 返回 {@code Flux<ChatEvent>}：正文增量按 {@code TEXT_DELTA}
+     * 过滤并读取 {@code getText()}，完整终态从 {@code RESPONSE_END.getResponse()} 读取。
      */
-    public Flux<ChatResponse> stream(String userMessage) {
+    public Flux<ChatEvent> stream(String userMessage) {
         return chatModel.prompt(userMessage).stream();
     }
 

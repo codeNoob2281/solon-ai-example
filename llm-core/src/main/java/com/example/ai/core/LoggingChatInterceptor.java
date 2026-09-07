@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.AiUsage;
 import org.noear.solon.ai.chat.ChatRequest;
 import org.noear.solon.ai.chat.ChatResponse;
+import org.noear.solon.ai.chat.event.ChatEvent;
+import org.noear.solon.ai.chat.event.ChatEventType;
 import org.noear.solon.ai.chat.interceptor.CallChain;
 import org.noear.solon.ai.chat.interceptor.ChatInterceptor;
 import org.noear.solon.ai.chat.interceptor.StreamChain;
@@ -18,7 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * 在 ChatInterceptor 拦截链中打印模型请求体与响应内容：
  * <ul>
  *   <li>call 模式：打印请求 JSON + 响应内容 + usage</li>
- *   <li>stream 模式：打印请求 JSON + 每个 chunk + 聚合结果 + usage</li>
+ *   <li>stream 模式（4.1 ChatEvent 模型）：打印请求 JSON + 每个事件 + 正文聚合 + usage</li>
  * </ul>
  *
  * @author huang zifan
@@ -48,10 +50,15 @@ public class LoggingChatInterceptor implements ChatInterceptor {
         return resp;
     }
 
+    /**
+     * 4.1 起流式拦截链类型为 {@code Flux<ChatEvent>}：每个事件是当帧语义快照，
+     * 完整聚合结果只从 {@code RESPONSE_END.getResponse()} 读取（不可变 ChatResponse）。
+     */
     @Override
-    public reactor.core.publisher.Flux<ChatResponse> interceptStream(ChatRequest req, StreamChain chain) {
+    public reactor.core.publisher.Flux<ChatEvent> interceptStream(ChatRequest req, StreamChain chain) {
         long start = System.currentTimeMillis();
-        AtomicInteger chunkIndex = new AtomicInteger(0);
+        AtomicInteger eventIndex = new AtomicInteger(0);
+        AtomicInteger textDeltaCount = new AtomicInteger(0);
         AtomicReference<String> aggregated = new AtomicReference<>("");
         AtomicReference<AiUsage> usageRef = new AtomicReference<>();
 
@@ -59,20 +66,31 @@ public class LoggingChatInterceptor implements ChatInterceptor {
         logRequestJson(req);
 
         return chain.doIntercept(req)
-                .doOnNext(resp -> {
-                    int idx = chunkIndex.getAndIncrement();
-                    String content = resp.getContent();
-                    if (content != null) {
-                        aggregated.updateAndGet(prev -> prev + content);
+                .doOnNext(event -> {
+                    int idx = eventIndex.getAndIncrement();
+
+                    // 正文增量：TEXT_DELTA.getText() 为当帧分片（非累计）
+                    if (event.is(ChatEventType.TEXT_DELTA) && event.hasText()) {
+                        textDeltaCount.incrementAndGet();
+                        aggregated.updateAndGet(prev -> prev + event.getText());
                     }
-                    if (resp.isFinished() && resp.getUsage() != null) {
-                        usageRef.set(resp.getUsage());
+
+                    // 终态：RESPONSE_END 携带全流终态聚合（含累计 usage）；
+                    // STEP_END / USAGE 事件各自携带用量，兜底记录最后一次
+                    if (event.is(ChatEventType.RESPONSE_END) && event.getResponse() != null) {
+                        aggregated.set(event.getResponse().getContent());
+                        if (event.getResponse().getUsage() != null) {
+                            usageRef.set(event.getResponse().getUsage());
+                        }
+                    } else if (event.getUsage() != null) {
+                        usageRef.set(event.getUsage());
                     }
-                    log.info("[AI Stream] chunk={}/{} model={} content={}",
+
+                    log.info("[AI Stream] event={} type={} model={} text={}",
                             idx,
-                            resp.hasChoices() ? resp.getChoices().size() : 0,
+                            event.getType(),
                             req.getConfig().getNameOrModel(),
-                            content);
+                            event.hasText() ? event.getText() : "");
                 })
                 .doOnError(err -> {
                     long elapsed = System.currentTimeMillis() - start;
@@ -83,10 +101,11 @@ public class LoggingChatInterceptor implements ChatInterceptor {
                 })
                 .doOnComplete(() -> {
                     long elapsed = System.currentTimeMillis() - start;
-                    log.info("[AI Stream Done] model={} elapsed={}ms chunks={} aggregatedLength={}",
+                    log.info("[AI Stream Done] model={} elapsed={}ms events={} textDeltas={} aggregatedLength={}",
                             req.getConfig().getNameOrModel(),
                             elapsed,
-                            chunkIndex.get(),
+                            eventIndex.get(),
+                            textDeltaCount.get(),
                             aggregated.get().length());
                     logUsage(usageRef.get());
                 });

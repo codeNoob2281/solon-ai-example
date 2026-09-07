@@ -9,7 +9,8 @@ import com.example.ai.example.service.ChatService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.noear.solon.ai.chat.ChatResponse;
+import org.noear.solon.ai.chat.event.ChatEvent;
+import org.noear.solon.ai.chat.event.ChatEventType;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -77,11 +78,14 @@ public class ChatController {
     }
 
     /**
-     * 流式对话：基于 SseEmitter 推送增量文本
+     * 流式对话：基于 SseEmitter 推送增量文本。
+     * <p>
+     * 4.1 ChatEvent 模型：只投影正文增量（TEXT_DELTA 且 hasText），
+     * 完整终态从 RESPONSE_END.getResponse() 读取（此处仅做文本转发）。
      * SSE 事件：
      * - message: 每个增量文本块
      * - done:    流结束
-     * - error:   调用出错
+     * - error:   调用出错（4.1 中 ERROR 事件与 onError 表示同一次失败，这里统一走 onError 通道）
      */
     @Operation(summary = "流式对话（SSE）",
             description = "基于 SseEmitter 推送增量文本。SSE 事件：message=每个增量文本块，"
@@ -91,8 +95,10 @@ public class ChatController {
         SseEmitter emitter = new SseEmitter(0L);
 
         chatService.stream(request.getMessage())
+                .filter(event -> event.is(ChatEventType.TEXT_DELTA) && event.hasText())
+                .map(ChatEvent::getText)
                 .subscribe(
-                        response -> sendMessage(emitter, response),
+                        text -> sendMessage(emitter, text),
                         error -> sendError(emitter, error),
                         () -> complete(emitter)
                 );
@@ -232,11 +238,9 @@ public class ChatController {
         return chatService.chatAsCustomAgent(request);
     }
 
-    private void sendMessage(SseEmitter emitter, ChatResponse response) {
+    private void sendMessage(SseEmitter emitter, String text) {
         try {
-            if (response != null && response.getContent() != null) {
-                emitter.send(SseEmitter.event().name("message").data(response.getContent()));
-            }
+            emitter.send(SseEmitter.event().name("message").data(text));
         } catch (Exception e) {
             emitter.completeWithError(e);
         }

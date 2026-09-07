@@ -138,7 +138,7 @@ SSE 事件说明：
 - `done`: 流结束
 - `error`: 调用出错
 
-流式原理：`ChatService.stream()` 返回 Solon AI 的 `Flux<ChatResponse>`（Reactor），控制器订阅后通过 Spring MVC 的 `SseEmitter` 推送给客户端，无需引入 WebFlux。
+流式原理：`ChatService.stream()` 返回 Solon AI 4.1 的 `Flux<ChatEvent>`（Reactor），控制器过滤 `TEXT_DELTA` 事件投影正文增量后，通过 Spring MVC 的 `SseEmitter` 推送给客户端，无需引入 WebFlux。
 
 ### 音频理解（识别动物叫声）
 
