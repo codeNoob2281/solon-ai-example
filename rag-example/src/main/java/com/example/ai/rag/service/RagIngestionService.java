@@ -4,6 +4,7 @@ import com.example.ai.rag.config.RagProperties;
 import com.example.ai.rag.dto.IngestResult;
 import com.example.ai.rag.entity.KbChunk;
 import com.example.ai.rag.entity.KbDocument;
+import com.example.ai.rag.loader.MarkdownLoader;
 import com.example.ai.rag.storage.KnowledgeBaseStore;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.rag.Document;
@@ -11,7 +12,6 @@ import org.noear.solon.ai.rag.DocumentLoader;
 import org.noear.solon.ai.rag.DocumentSplitter;
 import org.noear.solon.ai.rag.RepositoryStorable;
 import org.noear.solon.ai.rag.loader.HtmlSimpleLoader;
-import org.noear.solon.ai.rag.loader.MarkdownLoader;
 import org.noear.solon.ai.rag.loader.TextLoader;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
@@ -58,11 +58,17 @@ import java.util.concurrent.Future;
 @Service
 public class RagIngestionService {
 
-    /** 子块 metadata：所属文档 id */
+    /**
+     * 子块 metadata：所属文档 id
+     */
     static final String META_DOCUMENT_ID = "document_id";
-    /** 子块 metadata：父块 id（MilvusChildRepository 写入时提升为集合独立字段） */
+    /**
+     * 子块 metadata：父块 id（MilvusChildRepository 写入时提升为集合独立字段）
+     */
     static final String META_PARENT_ID = "parent_id";
-    /** 子块 metadata：在父块内的序号 */
+    /**
+     * 子块 metadata：在父块内的序号
+     */
     static final String META_CHILD_INDEX = "child_index";
 
     private final RepositoryStorable repository;

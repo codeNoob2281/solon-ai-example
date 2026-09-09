@@ -60,7 +60,7 @@ ai:
       parent-min-chunk-size-chars: ${RAG_PARENT_MIN_CHARS:600}
       child-chunk-size: ${RAG_CHILD_CHUNK_SIZE:200}
       child-min-chunk-size-chars: ${RAG_CHILD_MIN_CHARS:50}
-      min-chunk-length-to-embed: 5
+      min-chunk-length-to-embed: 10
       max-chunk-count: 1000
       keep-separator: true
 
