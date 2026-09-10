@@ -114,9 +114,26 @@ public class RagProperties {
         /**
          * 检索策略标识（对应 {@link RagRetrievalStrategy#name()}，需在容器内唯一）；
          * 空/未配置时用默认策略；未知标识启动时快速失败。
-         * 默认 parent-child = 父子分段检索（子块向量检索 + 父块映射）
+         * 可选值：parent-child（默认，子块向量检索 + 父块映射）/ mysql-fulltext（关键词全文检索）/
+         * hybrid-rrf（向量 + 关键词 RRF 加权融合）
          */
         private String strategy = RagRetrievalStrategy.DEFAULT_STRATEGY;
+
+        /**
+         * 混合检索（strategy = hybrid-rrf）向量侧权重，RRF 加权融合用（原始权重，不归一化）
+         */
+        private double vectorWeight = 0.6;
+
+        /**
+         * 混合检索（strategy = hybrid-rrf）关键词侧权重
+         */
+        private double keywordWeight = 0.4;
+
+        /**
+         * 混合检索（strategy = hybrid-rrf）候选倍数：各来源候选条数 = limit × 该倍数，
+         * RRF 需要更大的候选池做跨来源重排，默认 3
+         */
+        private int candidateMultiplier = 3;
     }
 
     /**

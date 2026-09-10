@@ -63,6 +63,7 @@ solon-ai-example/
         │   │   ├── RagRetrievalStrategy.java       # 检索策略接口（可配置，默认 parent-child）
         │   │   ├── ParentChildRetrievalStrategy.java # 默认策略：子块检索 → 父块映射（Small-to-Big）
         │   │   ├── MysqlFullTextRetrievalStrategy.java # 关键词策略：MySQL FULLTEXT 全文检索父块
+        │   │   ├── HybridRrfRetrievalStrategy.java # 混合策略：向量 + 关键词 RRF 加权融合
         │   │   └── RagRetrievalStrategyResolver.java # 按配置选择策略（启动时解析）
         │   ├── storage/
         │   │   └── KnowledgeBaseStore.java        # MySQL 存取 + 懒建表
@@ -242,7 +243,7 @@ ChatModel agent = ChatModel.of("https://api.moark.com/v1/chat/completions")
 - [《rag - RAG 相关概念》](https://solon.noear.org/article/932)
 - [《solon-ai-repo-milvus》](https://solon.noear.org/article/941)
 
-**当前阶段已实现：父子分段 RAG——文档加载（DocumentLoader）→ 父块切分（存 MySQL 分块表）→ 子块切分（向量化存 Milvus，`parent_id` 独立字段关联父块）；检索为「子块检索 → 父块映射 → 父块进 LLM 上下文」（Small-to-Big）。检索实现已抽离为可配置策略接口 `RagRetrievalStrategy`，内置 `parent-child`（默认，即上述父子分段检索）与 `mysql-fulltext`（关键词全文检索）两种实现。**
+**当前阶段已实现：父子分段 RAG——文档加载（DocumentLoader）→ 父块切分（存 MySQL 分块表）→ 子块切分（向量化存 Milvus，`parent_id` 独立字段关联父块）；检索为「子块检索 → 父块映射 → 父块进 LLM 上下文」（Small-to-Big）。检索实现已抽离为可配置策略接口 `RagRetrievalStrategy`，内置 `parent-child`（默认，即上述父子分段检索）、`mysql-fulltext`（关键词全文检索）与 `hybrid-rrf`（向量 + 关键词 RRF 加权融合）三种实现。**
 
 ### 架构（父子分段数据分布）
 
@@ -324,7 +325,7 @@ curl -X POST http://localhost:8081/rag/ask \
 > **检索策略可配置**：检索实现抽离为策略接口 `RagRetrievalStrategy`（`com.example.ai.rag.retrieval` 包），
 > `RagSearchService` 只做编排（策略检索 → 提示词组装 → LLM 生成）。
 > 通过 `RAG_SEARCH_STRATEGY`（`ai.rag.search.strategy`）选择实现（标识 = 策略的 `name()`），
-> 默认 `parent-child`（父子分段检索）；扩展新策略只需实现接口并注册为 Spring Bean。
+> 内置 `parent-child`（默认）/ `mysql-fulltext` / `hybrid-rrf`；扩展新策略只需实现接口并注册为 Spring Bean。
 > 配置了未知标识会在启动时快速失败并列出可用策略。
 
 以默认策略 `parent-child` 为例：
@@ -346,6 +347,19 @@ curl -X POST http://localhost:8081/rag/ask \
   （`KnowledgeBaseStore.ensureFulltextIndex()`，默认 parent-child 策略不依赖该索引）；
   DDL 同步于 `rag-example/src/main/resources/sql/knowledge_base.sql`
 
+#### 混合检索策略（`hybrid-rrf`，可选）
+
+配置 `RAG_SEARCH_STRATEGY=hybrid-rrf` 切换，对向量检索（`parent-child`）与关键词检索
+（`mysql-fulltext`）的结果做 **RRF（Reciprocal Rank Fusion）** 融合排序：
+
+- 融合公式：`finalScore = vectorWeight × Σ 1/(RRF_K + rank) + keywordWeight × Σ 1/(RRF_K + rank)`，
+  RRF_K 固定 60；权重由 `RAG_SEARCH_VECTOR_WEIGHT` / `RAG_SEARCH_KEYWORD_WEIGHT` 配置
+  （默认 `0.6` / `0.4`，原始权重不归一化）
+- 两来源各自检索 `limit × RAG_SEARCH_CANDIDATE_MULTIPLIER`（默认 3 倍）条候选，
+  融合后取相关度前 limit；两来源均返回父块级命中，按父块 id 对齐，融合分 ROUND 保留 4 位小数
+- `similarityThreshold` 原样透传（向量侧为相似度阈值，关键词侧为相关度下限）
+- 任一来源检索失败（如 Milvus/MySQL 暂不可用）时降级：仅用另一来源结果，混合检索仍可用
+
 ### 关键配置
 
 | 变量 | 默认值 | 说明 |
@@ -358,7 +372,10 @@ curl -X POST http://localhost:8081/rag/ask \
 | `RAG_PARENT_MIN_CHARS` | `600` | 父块句子边界回切最小字符数 |
 | `RAG_CHILD_CHUNK_SIZE` | `200` | 子块目标 token 数（存 Milvus，向量检索） |
 | `RAG_CHILD_MIN_CHARS` | `50` | 子块句子边界回切最小字符数 |
-| `RAG_SEARCH_STRATEGY` | `parent-child` | 检索策略标识（`RagRetrievalStrategy#name()`）；可选 `parent-child`（默认，父子分段检索）/ `mysql-fulltext`（关键词全文检索） |
+| `RAG_SEARCH_STRATEGY` | `parent-child` | 检索策略标识（`RagRetrievalStrategy#name()`）；可选 `parent-child`（默认，父子分段检索）/ `mysql-fulltext`（关键词全文检索）/ `hybrid-rrf`（向量 + 关键词 RRF 融合） |
+| `RAG_SEARCH_VECTOR_WEIGHT` | `0.6` | 混合检索（`hybrid-rrf`）向量侧 RRF 权重（原始权重，不归一化） |
+| `RAG_SEARCH_KEYWORD_WEIGHT` | `0.4` | 混合检索（`hybrid-rrf`）关键词侧 RRF 权重 |
+| `RAG_SEARCH_CANDIDATE_MULTIPLIER` | `3` | 混合检索候选倍数：各来源候选条数 = limit × 倍数 |
 | `RAG_EMBEDDING_API_URL` | `http://127.0.0.1:11434/api/embed` | 嵌入服务地址（Ollama 用完整地址） |
 | `RAG_EMBEDDING_MODEL` | `bge-m3:latest` | 嵌入模型 |
 | `RAG_EMBEDDING_PROVIDER` / `STANDARD` | `ollama` | 嵌入方言（空 = 默认 openai） |

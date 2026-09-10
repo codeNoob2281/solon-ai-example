@@ -65,9 +65,14 @@ ai:
       keep-separator: true
 
     # 检索策略（RagRetrievalStrategy 实现标识，由 RagRetrievalStrategyResolver 启动时选择）：
-    # 默认 parent-child = 父子分段检索（子块向量检索 → 父块映射）；未知标识启动时快速失败
+    # 可选 parent-child（默认，子块向量检索→父块映射）/ mysql-fulltext（关键词全文检索）/
+    #       hybrid-rrf（向量 + 关键词 RRF 加权融合）；未知标识启动时快速失败
     search:
       strategy: ${RAG_SEARCH_STRATEGY:parent-child}
+      # 混合检索（hybrid-rrf）参数：向量/关键词 RRF 加权权重 + 各来源候选条数倍数（limit × 倍数）
+      vector-weight: ${RAG_SEARCH_VECTOR_WEIGHT:0.6}
+      keyword-weight: ${RAG_SEARCH_KEYWORD_WEIGHT:0.4}
+      candidate-multiplier: ${RAG_SEARCH_CANDIDATE_MULTIPLIER:3}
 
     # 文档并行入库线程池：单线程处理最小维度 = 单个文档
     # （父子切分 → MySQL 落库 → 子块向量化 → 写入 Milvus 一个任务内完成）
