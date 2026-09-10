@@ -1,6 +1,7 @@
 package com.example.ai.rag.storage;
 
 import com.example.ai.rag.entity.KbChunk;
+import com.example.ai.rag.entity.KbChunkFullTextRow;
 import com.example.ai.rag.entity.KbDocument;
 import com.example.ai.rag.mapper.KbChunkMapper;
 import com.example.ai.rag.mapper.KbDocumentMapper;
@@ -22,10 +23,12 @@ import java.util.UUID;
  * <ul>
  *   <li>入库：文档行 + 父块行一次性落库（{@code @Transactional}），
  *       Milvus 子块写入成功后置 INGESTED、失败置 FAILED（尽力而为）；</li>
- *   <li>检索：按父块 id 批量取父块行（子块命中 Milvus 后映射父块内容）；</li>
+ *   <li>检索：按父块 id 批量取父块行（子块命中 Milvus 后映射父块内容）；
+ *       以及父块内容全文检索（MySQL FULLTEXT，关键词检索策略 {@code mysql-fulltext}）；</li>
  *   <li>懒建表：首次使用时执行 {@code CREATE TABLE IF NOT EXISTS}，
  *       对齐 Milvus「首次使用自动建集合」的懒初始化风格——应用启动不要求 MySQL 在线，
- *       首次使用知识库时才建连/建表。</li>
+ *       首次使用知识库时才建连/建表；FULLTEXT 索引（ngram）由关键词检索策略
+ *       首次使用时懒建。</li>
  * </ul>
  * <p>
  * DDL 与 {@code resources/sql/knowledge_base.sql} 保持一致（该文件用于手工初始化/查阅）。
@@ -66,12 +69,35 @@ public class KnowledgeBaseStore {
             + "  KEY idx_kb_chunk_document (document_id)\n"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库父块表'";
 
+    /**
+     * 全文索引名（kb_chunk.content，ngram 中文分词；关键词检索策略使用）
+     */
+    public static final String FULLTEXT_INDEX_NAME = "idx_kb_chunk_content_ft";
+
+    /**
+     * 全文索引存在性检查（information_schema 按索引名精确判断，幂等）
+     */
+    private static final String CHECK_FULLTEXT_INDEX =
+            "SELECT COUNT(*) FROM information_schema.statistics"
+                    + " WHERE table_schema = DATABASE() AND table_name = 'kb_chunk'"
+                    + " AND index_name = '" + FULLTEXT_INDEX_NAME + "' AND index_type = 'FULLTEXT'";
+
+    /**
+     * 全文索引 DDL（不并入 CREATE TABLE：避免抬高默认 parent-child 策略的 MySQL 版本门槛，
+     * 仅关键词检索策略使用，首次调用时检测并创建）。需 MySQL 5.7.6+（InnoDB ngram 解析器）。
+     */
+    private static final String DDL_FULLTEXT_INDEX =
+            "ALTER TABLE kb_chunk ADD FULLTEXT INDEX " + FULLTEXT_INDEX_NAME + " (content) WITH PARSER ngram";
+
     private final JdbcTemplate jdbcTemplate;
     private final KbDocumentMapper documentMapper;
     private final KbChunkMapper chunkMapper;
 
     /** 懒建表完成标记（volatile + 双检锁） */
     private volatile boolean initialized = false;
+
+    /** 懒建全文索引完成标记（volatile + 双检锁，仅关键词检索策略触达） */
+    private volatile boolean fulltextIndexReady = false;
 
     public KnowledgeBaseStore(JdbcTemplate jdbcTemplate,
                               KbDocumentMapper documentMapper,
@@ -169,5 +195,51 @@ public class KnowledgeBaseStore {
         }
         ensureTables();
         return chunkMapper.selectBatchIds(ids);
+    }
+
+    /**
+     * 懒建全文索引：kb_chunk.content 上的 FULLTEXT（ngram 解析器，幂等）。
+     * <p>
+     * 仅关键词检索策略（{@code mysql-fulltext}）首次使用时触达，默认向量检索路径
+     * 不依赖该索引（避免抬高其 MySQL 版本门槛：ngram 需 MySQL 5.7.6+）。
+     * 索引已存在（如手工初始化过）则直接跳过；创建失败（版本过旧等）时异常上抛，
+     * 标记不置位，下次调用重试。
+     */
+    public void ensureFulltextIndex() {
+        if (fulltextIndexReady) {
+            return;
+        }
+        synchronized (this) {
+            if (fulltextIndexReady) {
+                return;
+            }
+            ensureTables();
+            Integer exists = jdbcTemplate.queryForObject(CHECK_FULLTEXT_INDEX, Integer.class);
+            if (exists == null || exists == 0) {
+                try {
+                    jdbcTemplate.execute(DDL_FULLTEXT_INDEX);
+                    log.info("[KB Store] MySQL 全文索引已创建: kb_chunk.{} (ngram)", FULLTEXT_INDEX_NAME);
+                } catch (RuntimeException e) {
+                    throw new IllegalStateException("MySQL 全文索引创建失败（ngram 解析器需 MySQL 5.7.6+；"
+                            + "也可手工执行: " + DDL_FULLTEXT_INDEX + "）", e);
+                }
+            }
+            fulltextIndexReady = true;
+            log.info("[KB Store] MySQL 全文索引已就绪: kb_chunk.{}", FULLTEXT_INDEX_NAME);
+        }
+    }
+
+    /**
+     * 父块内容全文检索（关键词检索策略 {@code mysql-fulltext}）：
+     * MATCH...AGAINST 自然语言模式 + ngram 分词，只命中已入库（INGESTED）文档的父块，
+     * 按相关度倒序，分值 SQL 内 ROUND 保留 4 位小数。
+     *
+     * @param query    关键词查询文本（非空）
+     * @param limit    返回条数上限（调用方保证 &gt; 0）
+     * @param minScore 相关度下限（可选；null 或非正数不过滤。相关度非 0~1 相似度）
+     */
+    public List<KbChunkFullTextRow> findChunksByFullText(String query, int limit, Double minScore) {
+        ensureFulltextIndex();
+        return chunkMapper.selectByFullText(query, limit, minScore);
     }
 }

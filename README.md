@@ -54,13 +54,15 @@ solon-ai-example/
         │   │   └── MilvusChildRepository.java     # 子块向量仓库（自建集合：parent_id 独立字段）
         │   ├── entity/
         │   │   ├── KbDocument.java                # 文档表 kb_document
-        │   │   └── KbChunk.java                   # 父块表 kb_chunk
+        │   │   ├── KbChunk.java                   # 父块表 kb_chunk
+        │   │   └── KbChunkFullTextRow.java        # 全文检索命中行（查询投影，非表实体）
         │   ├── mapper/
         │   │   ├── KbDocumentMapper.java          # MyBatis-Plus BaseMapper
         │   │   └── KbChunkMapper.java
         │   ├── retrieval/
         │   │   ├── RagRetrievalStrategy.java       # 检索策略接口（可配置，默认 parent-child）
         │   │   ├── ParentChildRetrievalStrategy.java # 默认策略：子块检索 → 父块映射（Small-to-Big）
+        │   │   ├── MysqlFullTextRetrievalStrategy.java # 关键词策略：MySQL FULLTEXT 全文检索父块
         │   │   └── RagRetrievalStrategyResolver.java # 按配置选择策略（启动时解析）
         │   ├── storage/
         │   │   └── KnowledgeBaseStore.java        # MySQL 存取 + 懒建表
@@ -76,8 +78,6 @@ solon-ai-example/
 ```
 
 ## 构建
-
-> Maven settings.xml 已配置在 `C:\Users\ZJBR\.m2\settings.xml`，本地仓库指向 `D:\apache-maven-3.6\maven-repository`，fingard profile 自动激活，无需额外 `-Dmaven.repo.local` 参数。
 
 ```bash
 # 根目录构建（同时构建 llm-core 与 llm-chat-example）
@@ -242,7 +242,7 @@ ChatModel agent = ChatModel.of("https://api.moark.com/v1/chat/completions")
 - [《rag - RAG 相关概念》](https://solon.noear.org/article/932)
 - [《solon-ai-repo-milvus》](https://solon.noear.org/article/941)
 
-**当前阶段已实现：父子分段 RAG——文档加载（DocumentLoader）→ 父块切分（存 MySQL 分块表）→ 子块切分（向量化存 Milvus，`parent_id` 独立字段关联父块）；检索为「子块检索 → 父块映射 → 父块进 LLM 上下文」（Small-to-Big）。检索实现已抽离为可配置策略接口 `RagRetrievalStrategy`（默认即上述父子分段检索）。**
+**当前阶段已实现：父子分段 RAG——文档加载（DocumentLoader）→ 父块切分（存 MySQL 分块表）→ 子块切分（向量化存 Milvus，`parent_id` 独立字段关联父块）；检索为「子块检索 → 父块映射 → 父块进 LLM 上下文」（Small-to-Big）。检索实现已抽离为可配置策略接口 `RagRetrievalStrategy`，内置 `parent-child`（默认，即上述父子分段检索）与 `mysql-fulltext`（关键词全文检索）两种实现。**
 
 ### 架构（父子分段数据分布）
 
@@ -333,6 +333,19 @@ curl -X POST http://localhost:8081/rag/ask \
 2. **父块映射**：子块按 `metadata.parent_id` 分组（同父块取最高子块相似度），MySQL `selectBatchIds` 批量取父块行（父块行缺失时 WARN 跳过）
 3. **上下文组装**：父块内容按最高子块相似度倒序进入 LLM 上下文（`/rag/search` 返回映射后的父块，`/rag/ask` 用于问答）
 
+#### 关键词检索策略（`mysql-fulltext`，可选）
+
+配置 `RAG_SEARCH_STRATEGY=mysql-fulltext` 切换，直接对 MySQL 父块表 `kb_chunk.content` 做
+`MATCH ... AGAINST` 自然语言模式全文检索（ngram 中文分词，需 MySQL 5.7.6+）：
+
+- 不依赖 Milvus 与向量模型，纯关键词匹配（无语义泛化）；检索粒度直接为父块
+- 分值为 MySQL 全文相关度（非 0~1 相似度），SQL 内 `ROUND(..., 4)` 保留 4 位小数，按分值倒序；
+  `similarityThreshold` 参数语义为「相关度下限」过滤
+- 只命中已入库（`kb_document.status = INGESTED`）文档的父块，并 JOIN 带出标题/来源供结果展示
+- FULLTEXT 索引 `idx_kb_chunk_content_ft(content)` 由该策略首次使用时懒建
+  （`KnowledgeBaseStore.ensureFulltextIndex()`，默认 parent-child 策略不依赖该索引）；
+  DDL 同步于 `rag-example/src/main/resources/sql/knowledge_base.sql`
+
 ### 关键配置
 
 | 变量 | 默认值 | 说明 |
@@ -345,7 +358,7 @@ curl -X POST http://localhost:8081/rag/ask \
 | `RAG_PARENT_MIN_CHARS` | `600` | 父块句子边界回切最小字符数 |
 | `RAG_CHILD_CHUNK_SIZE` | `200` | 子块目标 token 数（存 Milvus，向量检索） |
 | `RAG_CHILD_MIN_CHARS` | `50` | 子块句子边界回切最小字符数 |
-| `RAG_SEARCH_STRATEGY` | `parent-child` | 检索策略标识（`RagRetrievalStrategy#name()`；默认父子分段检索） |
+| `RAG_SEARCH_STRATEGY` | `parent-child` | 检索策略标识（`RagRetrievalStrategy#name()`）；可选 `parent-child`（默认，父子分段检索）/ `mysql-fulltext`（关键词全文检索） |
 | `RAG_EMBEDDING_API_URL` | `http://127.0.0.1:11434/api/embed` | 嵌入服务地址（Ollama 用完整地址） |
 | `RAG_EMBEDDING_MODEL` | `bge-m3:latest` | 嵌入模型 |
 | `RAG_EMBEDDING_PROVIDER` / `STANDARD` | `ollama` | 嵌入方言（空 = 默认 openai） |

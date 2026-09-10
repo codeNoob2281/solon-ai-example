@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  知识库父块表 Mapper XML（MyBatis-Plus 默认 mapper-locations: classpath*:/mapper/**/*.xml）
+-->
+<mapper namespace="com.example.ai.rag.mapper.KbChunkMapper">
+
+    <!--
+      父块内容 MySQL 全文检索（自然语言模式，ngram 分词；关键词检索策略专用）
+      - 要求 kb_chunk.content 上存在 FULLTEXT 索引（ngram 解析器，
+        由 KnowledgeBaseStore.ensureFulltextIndex() 首次使用时懒建）；
+      - INNER JOIN kb_document 且 status = 'INGESTED'：只命中已成功入库文档的父块，
+        同时带出标题/来源供结果展示（文档行缺失的父块自然排除）；
+      - 分值 = MATCH...AGAINST 相关度，ROUND 保留 4 位小数，按分值倒序；
+        minScore 非空时作为相关度下限过滤（分值非 0~1 相似度，语义为「下限」）。
+    -->
+    <select id="selectByFullText" resultType="com.example.ai.rag.entity.KbChunkFullTextRow">
+        SELECT c.id, c.document_id, c.content, d.title, d.source,
+               ROUND(MATCH(c.content) AGAINST(#{query} IN NATURAL LANGUAGE MODE), 4) AS score
+        FROM kb_chunk c
+                 JOIN kb_document d ON d.id = c.document_id AND d.status = 'INGESTED'
+        WHERE MATCH(c.content) AGAINST(#{query} IN NATURAL LANGUAGE MODE) > 0
+        <if test="minScore != null">
+              AND ROUND(MATCH(c.content) AGAINST(#{query} IN NATURAL LANGUAGE MODE), 4) >= #{minScore}
+        </if>
+        ORDER BY score DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

@@ -7,7 +7,8 @@
 -- 数据流（父子分段）：
 --   文档（kb_document）--父块切分--> 父块（kb_chunk，本库）
 --     --子块切分--> 子块（Milvus 集合，独立字段 parent_id = kb_chunk.id）
---   检索：Milvus 检索子块（相似度阈值 + limit）→ 子块映射父块 → 父块内容进 LLM 上下文
+--   检索（默认策略 parent-child）：Milvus 检索子块（相似度阈值 + limit）→ 子块映射父块 → 父块内容进 LLM 上下文
+--   检索（可选策略 mysql-fulltext）：MySQL FULLTEXT 全文检索父块（关键词，见文末索引）
 -- =====================================================================
 
 CREATE TABLE IF NOT EXISTS kb_document (
@@ -34,3 +35,11 @@ CREATE TABLE IF NOT EXISTS kb_chunk (
   PRIMARY KEY (id),
   KEY idx_kb_chunk_document (document_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识库父块表';
+
+-- ---------------------------------------------------------------------
+-- 关键词检索策略（ai.rag.search.strategy = mysql-fulltext）依赖的全文索引：
+-- kb_chunk.content FULLTEXT + ngram 中文分词（需 MySQL 5.7.6+）。
+-- 应用会在该策略首次使用时自动检测并创建（见 KnowledgeBaseStore.ensureFulltextIndex，
+-- 默认 parent-child 策略不依赖本索引），此处供手工初始化与查阅（重复执行会报索引已存在）。
+-- ---------------------------------------------------------------------
+ALTER TABLE kb_chunk ADD FULLTEXT INDEX idx_kb_chunk_content_ft (content) WITH PARSER ngram;
