@@ -33,6 +33,7 @@ import java.util.List;
  * POST /rag/ask                检索增强问答（RAG，父块内容进 LLM 上下文）
  * </pre>
  * 数据分布：父块存 MySQL（kb_document + kb_chunk），子块存 Milvus（独立字段 parent_id 关联父块）。
+ * 检索实现为可配置策略（RagRetrievalStrategy，ai.rag.search.strategy 选择，默认 parent-child = 子块检索→父块映射）。
  */
 @Slf4j
 @Tag(name = "RAG 知识库", description = "文档加载 → 父块切分存 MySQL → 子块切分存 Milvus（parent_id 关联）→ 子块检索映射父块 → 检索增强问答")

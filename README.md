@@ -58,11 +58,15 @@ solon-ai-example/
         │   ├── mapper/
         │   │   ├── KbDocumentMapper.java          # MyBatis-Plus BaseMapper
         │   │   └── KbChunkMapper.java
+        │   ├── retrieval/
+        │   │   ├── RagRetrievalStrategy.java       # 检索策略接口（可配置，默认 parent-child）
+        │   │   ├── ParentChildRetrievalStrategy.java # 默认策略：子块检索 → 父块映射（Small-to-Big）
+        │   │   └── RagRetrievalStrategyResolver.java # 按配置选择策略（启动时解析）
         │   ├── storage/
         │   │   └── KnowledgeBaseStore.java        # MySQL 存取 + 懒建表
         │   ├── service/
         │   │   ├── RagIngestionService.java       # 文档加载 + 父/子分段 + MySQL/Milvus 入库
-        │   │   └── RagSearchService.java          # 子块检索 → 父块映射 → RAG 问答
+        │   │   └── RagSearchService.java          # 检索编排（策略可配置）→ RAG 问答
         │   ├── controller/RagController.java      # POST /rag/ingest/* + GET /rag/search + POST /rag/ask
         │   └── dto/                               # 请求/响应体
         └── resources/
@@ -238,7 +242,7 @@ ChatModel agent = ChatModel.of("https://api.moark.com/v1/chat/completions")
 - [《rag - RAG 相关概念》](https://solon.noear.org/article/932)
 - [《solon-ai-repo-milvus》](https://solon.noear.org/article/941)
 
-**当前阶段已实现：父子分段 RAG——文档加载（DocumentLoader）→ 父块切分（存 MySQL 分块表）→ 子块切分（向量化存 Milvus，`parent_id` 独立字段关联父块）；检索为「子块检索 → 父块映射 → 父块进 LLM 上下文」（Small-to-Big）。**
+**当前阶段已实现：父子分段 RAG——文档加载（DocumentLoader）→ 父块切分（存 MySQL 分块表）→ 子块切分（向量化存 Milvus，`parent_id` 独立字段关联父块）；检索为「子块检索 → 父块映射 → 父块进 LLM 上下文」（Small-to-Big）。检索实现已抽离为可配置策略接口 `RagRetrievalStrategy`（默认即上述父子分段检索）。**
 
 ### 架构（父子分段数据分布）
 
@@ -317,6 +321,14 @@ curl -X POST http://localhost:8081/rag/ask \
 
 ### 检索流程说明（Small-to-Big）
 
+> **检索策略可配置**：检索实现抽离为策略接口 `RagRetrievalStrategy`（`com.example.ai.rag.retrieval` 包），
+> `RagSearchService` 只做编排（策略检索 → 提示词组装 → LLM 生成）。
+> 通过 `RAG_SEARCH_STRATEGY`（`ai.rag.search.strategy`）选择实现（标识 = 策略的 `name()`），
+> 默认 `parent-child`（父子分段检索）；扩展新策略只需实现接口并注册为 Spring Bean。
+> 配置了未知标识会在启动时快速失败并列出可用策略。
+
+以默认策略 `parent-child` 为例：
+
 1. **子块检索**：`MilvusChildRepository.search()` 按「相似度阈值 + limit」向量检索子块（`SimilarityUtil.refilter` 阈值二次过滤）
 2. **父块映射**：子块按 `metadata.parent_id` 分组（同父块取最高子块相似度），MySQL `selectBatchIds` 批量取父块行（父块行缺失时 WARN 跳过）
 3. **上下文组装**：父块内容按最高子块相似度倒序进入 LLM 上下文（`/rag/search` 返回映射后的父块，`/rag/ask` 用于问答）
@@ -333,6 +345,7 @@ curl -X POST http://localhost:8081/rag/ask \
 | `RAG_PARENT_MIN_CHARS` | `600` | 父块句子边界回切最小字符数 |
 | `RAG_CHILD_CHUNK_SIZE` | `200` | 子块目标 token 数（存 Milvus，向量检索） |
 | `RAG_CHILD_MIN_CHARS` | `50` | 子块句子边界回切最小字符数 |
+| `RAG_SEARCH_STRATEGY` | `parent-child` | 检索策略标识（`RagRetrievalStrategy#name()`；默认父子分段检索） |
 | `RAG_EMBEDDING_API_URL` | `http://127.0.0.1:11434/api/embed` | 嵌入服务地址（Ollama 用完整地址） |
 | `RAG_EMBEDDING_MODEL` | `bge-m3:latest` | 嵌入模型 |
 | `RAG_EMBEDDING_PROVIDER` / `STANDARD` | `ollama` | 嵌入方言（空 = 默认 openai） |

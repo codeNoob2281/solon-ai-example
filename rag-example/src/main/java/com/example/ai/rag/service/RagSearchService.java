@@ -1,39 +1,25 @@
 package com.example.ai.rag.service;
 
 import com.example.ai.rag.dto.SearchHit;
-import com.example.ai.rag.entity.KbChunk;
-import com.example.ai.rag.storage.KnowledgeBaseStore;
+import com.example.ai.rag.retrieval.RagRetrievalStrategy;
+import com.example.ai.rag.retrieval.RagRetrievalStrategyResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.chat.ChatModel;
-import org.noear.solon.ai.rag.Document;
-import org.noear.solon.ai.rag.RepositoryStorable;
-import org.noear.solon.ai.rag.util.QueryCondition;
 import org.noear.solon.ai.chat.message.ChatMessage;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * RAG 检索与问答服务（父子分段模式）
+ * RAG 检索与问答服务（编排层）
  * <p>
- * 检索策略：按「相似度阈值 + limit」从 Milvus 检索<b>子块</b>（小粒度、召回准），
- * 再把子块映射回 MySQL 父块行，以<b>父块内容</b>作为进入 LLM 的上下文
- * （大粒度、上下文完整——即 Parent-Child / Small-to-Big 检索模式）。
- * <p>
- * 映射规则（{@link #mapToParentHits}）：
- * <ul>
- *   <li>子块按命中顺序以 metadata.parent_id 分组（LinkedHashMap 保序），同一父块的
- *       多个子块取最高相似度作为该父块的得分；</li>
- *   <li>按父块 id 批量查 MySQL（selectBatchIds）取父块内容；父块行缺失时 WARN 跳过不失败；</li>
- *   <li>输出按父块最高子块相似度倒序。</li>
- * </ul>
+ * 检索实现已抽离为可配置策略 {@link RagRetrievalStrategy}：本服务只负责编排
+ * 「策略检索 → 提示词组装 → ChatModel 生成」，不关心检索的具体实现。
+ * 策略通过 {@code ai.rag.search.strategy}（环境变量 {@code RAG_SEARCH_STRATEGY}）
+ * 配置选择，默认 {@code parent-child}——即父子分段 / Small-to-Big 检索
+ * （子块向量检索 → 父块映射，实现见 {@code ParentChildRetrievalStrategy}）。
  * <p>
  * 问答使用 llm-core 自动装配的全局 ChatModel：系统提示词（智能客服）+ 自定义用户提示词模版。
  */
@@ -63,47 +49,45 @@ public class RagSearchService {
             + "【知识库匹配结果】\n"
             + "${knowledge}";
 
-    private final RepositoryStorable repository;
+    private final RagRetrievalStrategy retrievalStrategy;
     private final ChatModel chatModel;
-    private final KnowledgeBaseStore knowledgeBaseStore;
 
-    public RagSearchService(@Lazy RepositoryStorable repository,
-                            ChatModel chatModel,
-                            KnowledgeBaseStore knowledgeBaseStore) {
-        this.repository = repository;
+    public RagSearchService(RagRetrievalStrategyResolver retrievalResolver,
+                            ChatModel chatModel) {
+        // 启动时按配置选定策略（配置错误在此快速失败）
+        this.retrievalStrategy = retrievalResolver.resolve();
         this.chatModel = chatModel;
-        this.knowledgeBaseStore = knowledgeBaseStore;
     }
 
     /**
-     * 子块向量检索 + 父块映射：返回与 query 最相关的父块（内容完整，供上层浏览/验证入库效果）
+     * 检索：委托给当前配置的检索策略
+     * （默认策略返回与 query 最相关的父块，内容完整，供上层浏览/验证入库效果）
      *
      * @param query               查询文本
-     * @param limit               子块检索条数（默认 QueryCondition.DEFAULT_LIMIT = 4；映射去重后父块数 ≤ limit）
-     * @param similarityThreshold 相似度阈值（可选；null 或非正数时用默认值 0.4）
+     * @param limit               检索条数上限（&lt;=0 时用策略默认值）
+     * @param similarityThreshold 相似度阈值（可选；null 或非正数时用策略默认值）
      */
     public List<SearchHit> search(String query, int limit, Double similarityThreshold) throws IOException {
-        List<Document> childHits = repository.search(buildCondition(query, limit, similarityThreshold));
-        List<SearchHit> parentHits = mapToParentHits(childHits);
-        log.info("[RAG Search] query={} childHits={} parentHits={}", query, childHits.size(), parentHits.size());
-        return parentHits;
+        List<SearchHit> hits = retrievalStrategy.retrieve(query, limit, similarityThreshold);
+        log.info("[RAG Search] strategy={} query={} hits={}", retrievalStrategy.name(), query, hits.size());
+        return hits;
     }
 
     /**
      * RAG 问答：检索增强生成
-     * 检索子块 → 映射父块（按最高子块相似度倒序）→ 系统提示词（智能客服）
+     * 策略检索 → 命中内容进 LLM 上下文 → 系统提示词（智能客服）
      * + 自定义用户提示词模版 → ChatModel 生成回答
      *
      * @param question            用户问题
-     * @param limit               子块检索条数（默认 4）
-     * @param similarityThreshold 相似度阈值（可选；null 或非正数时用默认值 0.4）
+     * @param limit               检索条数上限（&lt;=0 时用策略默认值）
+     * @param similarityThreshold 相似度阈值（可选；null 或非正数时用策略默认值）
      * @return AI 回答文本
      */
     public String ask(String question, int limit, Double similarityThreshold) throws IOException {
-        List<Document> childHits = repository.search(buildCondition(question, limit, similarityThreshold));
-        List<SearchHit> context = mapToParentHits(childHits);
+        List<SearchHit> context = retrievalStrategy.retrieve(question, limit, similarityThreshold);
 
-        log.info("[RAG Ask] question={} childHits={} parentContext={}", question, childHits.size(), context.size());
+        log.info("[RAG Ask] question={} strategy={} contextSize={}",
+                question, retrievalStrategy.name(), context.size());
 
         ChatMessage user = ChatMessage.ofUserTmpl(USER_PROMPT_TEMPLATE)
                 .paramAdd("question", question == null ? "" : question)
@@ -121,81 +105,7 @@ public class RagSearchService {
     }
 
     /**
-     * 子块 → 父块映射（父子分段检索的核心步骤）
-     * <p>
-     * 1. 子块按命中顺序以 metadata.parent_id 分组（同一父块多个子块取最高分）；
-     * 2. MySQL 批量取父块行（含内容），行缺失（如人工清理）时 WARN 跳过；
-     * 3. 输出按最高子块相似度倒序的 {@link SearchHit}（content = 父块内容）。
-     */
-    private List<SearchHit> mapToParentHits(List<Document> childHits) {
-        if (childHits.isEmpty()) {
-            return new ArrayList<>();
-        }
-
-        // 按命中顺序分组：parentId → 最高子块得分；并记录每组首个命中子块（用于元数据/来源展示）
-        Map<String, Double> parentScores = new LinkedHashMap<>();
-        Map<String, Document> firstChildByParent = new LinkedHashMap<>();
-        for (Document child : childHits) {
-            Object parentId = child.getMetadata(RagIngestionService.META_PARENT_ID);
-            if (parentId == null) {
-                log.warn("[RAG Search] child without parent_id, skip: childId={}", child.getId());
-                continue;
-            }
-            String pid = parentId.toString();
-            Double best = parentScores.get(pid);
-            if (best == null) {
-                parentScores.put(pid, child.getScore());
-                firstChildByParent.put(pid, child);
-            } else if (child.getScore() > best) {
-                parentScores.put(pid, child.getScore());
-            }
-        }
-        if (parentScores.isEmpty()) {
-            return new ArrayList<>();
-        }
-
-        // MySQL 批查父块行
-        Map<String, KbChunk> parentsById = new HashMap<>();
-        for (KbChunk parent : knowledgeBaseStore.findParentsByIds(parentScores.keySet())) {
-            parentsById.put(parent.getId(), parent);
-        }
-
-        List<SearchHit> result = new ArrayList<>(parentScores.size());
-        for (Map.Entry<String, Double> entry : parentScores.entrySet()) {
-            KbChunk parent = parentsById.get(entry.getKey());
-            if (parent == null) {
-                // 子块命中但父块行缺失：跳过不失败，保证问答可用性
-                log.warn("[RAG Search] parent row missing in MySQL, skip: parentId={}", entry.getKey());
-                continue;
-            }
-            Document firstChild = firstChildByParent.get(entry.getKey());
-            result.add(new SearchHit(parent.getId(), parent.getDocumentId(),
-                    entry.getValue(), parent.getContent(), firstChild.getMetadata()));
-        }
-
-        // 按最高子块相似度倒序
-        result.sort(Comparator.comparingDouble(SearchHit::getScore).reversed());
-        return result;
-    }
-
-    /**
-     * 构建查询条件
-     * <p>
-     * limit 默认 QueryCondition.DEFAULT_LIMIT = 4；
-     * 相似度阈值默认 QueryCondition.DEFAULT_SIMILARITY_THRESHOLD = 0.4（检索结果按 score >= 阈值二次过滤）
-     */
-    private QueryCondition buildCondition(String query, int limit, Double similarityThreshold) {
-        QueryCondition condition = new QueryCondition(query)
-                .limit(limit > 0 ? limit : QueryCondition.DEFAULT_LIMIT);
-        if (similarityThreshold != null && similarityThreshold > 0) {
-            condition.similarityThreshold(similarityThreshold);
-        }
-        return condition;
-    }
-
-    /**
-     * 渲染知识库匹配结果：按相似度倒序编号，每条包含父块内容 + 来源 + 相似度分数
-     * （相似度为该父块下命中子块的最高分）
+     * 渲染知识库匹配结果：按相似度倒序编号，每条包含命中内容 + 来源 + 相似度分数
      */
     private String renderKnowledge(List<SearchHit> hits) {
         StringBuilder knowledge = new StringBuilder();

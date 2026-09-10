@@ -1,17 +1,19 @@
 package com.example.ai.rag.config;
 
+import com.example.ai.rag.retrieval.RagRetrievalStrategy;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * RAG 示例配置属性，前缀 ai.rag
  * <p>
- * 覆盖三类配置：
+ * 覆盖六类配置：
  * <ul>
  *   <li>embedding：嵌入模型（默认 Ollama bge-m3，可切换 OpenAI 兼容接口）</li>
  *   <li>milvus：Milvus 连接（对应 milvus-sdk-java 的 {@code io.milvus.v2.client.ConnectConfig}）</li>
  *   <li>repository：知识库 Collection 名（子块向量集合，含 parent_id 独立字段）</li>
  *   <li>splitter：父子分段参数（父块存 MySQL / 子块存 Milvus，均用 TokenSizeTextSplitter）</li>
+ *   <li>search：检索策略选择（{@link RagRetrievalStrategy} 实现标识，默认父子分段检索）</li>
  *   <li>ingestion：文档并行入库线程池参数（任务粒度 = 单个文档）</li>
  * </ul>
  * application.yml 中的 ${RAG_*:默认值} 占位符优先从 .env（经 EnvFileLoader）或系统环境变量解析。
@@ -24,6 +26,7 @@ public class RagProperties {
     private Milvus milvus = new Milvus();
     private Repository repository = new Repository();
     private Splitter splitter = new Splitter();
+    private Search search = new Search();
     private Ingestion ingestion = new Ingestion();
 
     /**
@@ -100,6 +103,20 @@ public class RagProperties {
         private int maxChunkCount = 1000;
         /** 保留分隔符 */
         private boolean keepSeparator = true;
+    }
+
+    /**
+     * 检索配置：检索实现抽离为 {@link RagRetrievalStrategy} 策略接口，
+     * 由 {@code RagRetrievalStrategyResolver} 按本段配置从容器内全部策略 Bean 中选择
+     */
+    @Data
+    public static class Search {
+        /**
+         * 检索策略标识（对应 {@link RagRetrievalStrategy#name()}，需在容器内唯一）；
+         * 空/未配置时用默认策略；未知标识启动时快速失败。
+         * 默认 parent-child = 父子分段检索（子块向量检索 + 父块映射）
+         */
+        private String strategy = RagRetrievalStrategy.DEFAULT_STRATEGY;
     }
 
     /**

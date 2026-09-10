@@ -60,16 +60,20 @@ public class RagIngestionService {
 
     /**
      * 子块 metadata：所属文档 id
+     * <p>
+     * 以下三个键为「入库 ↔ 检索」的跨组件契约：入库时写入子块 metadata，
+     * 检索策略（如 {@code ParentChildRetrievalStrategy}）按其读取映射，改键需两侧同步。
      */
-    static final String META_DOCUMENT_ID = "document_id";
+    public static final String META_DOCUMENT_ID = "document_id";
     /**
-     * 子块 metadata：父块 id（MilvusChildRepository 写入时提升为集合独立字段）
+     * 子块 metadata：父块 id（MilvusChildRepository 写入时提升为集合独立字段；
+     * 检索侧「子块映射父块」依赖该键）
      */
-    static final String META_PARENT_ID = "parent_id";
+    public static final String META_PARENT_ID = "parent_id";
     /**
      * 子块 metadata：在父块内的序号
      */
-    static final String META_CHILD_INDEX = "child_index";
+    public static final String META_CHILD_INDEX = "child_index";
 
     private final RepositoryStorable repository;
     private final DocumentSplitter parentSplitter;
