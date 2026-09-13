@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- 多模块聚合：llm-core / llm-chat-example / rag-example -->
+    <!-- 多模块聚合：llm-core / llm-chat-example / rag-example / agent-example -->
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -24,6 +24,7 @@
         <module>llm-core</module>
         <module>llm-chat-example</module>
         <module>rag-example</module>
+        <module>agent-example</module>
     </modules>
 
     <properties>

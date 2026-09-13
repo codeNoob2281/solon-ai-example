@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.example</groupId>
+        <artifactId>solon-ai-example</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>agent-example</artifactId>
+    <name>Agent Example</name>
+    <description>SimpleAgent example: e-commerce comment sentiment analysis (5 dimensions)</description>
+
+    <dependencies>
+        <!-- LLM Core Starter（复用 ChatModel 自动装配 / EnvFileLoader 约定） -->
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>llm-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          Solon AI Agent（SimpleAgent 等，4.1.0 @Preview API）
+          传递依赖：solon-ai 聚合包（core + 各方言）、solon-flow、solon-expression
+        -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-ai-agent</artifactId>
+            <version>${solon-ai.version}</version>
+        </dependency>
+
+        <!-- Spring Boot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- OpenAPI 3 / Swagger 文档（版本由父 POM dependencyManagement 管理） -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-ui</artifactId>
+        </dependency>
+
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>agent-example</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

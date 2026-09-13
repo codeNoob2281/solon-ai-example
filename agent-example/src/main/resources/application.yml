@@ -1,0 +1,21 @@
+server:
+  port: ${SERVER_PORT:8082}
+
+spring:
+  application:
+    name: agent-example
+
+# Solon AI ChatModel 自动装配配置（由 llm-core starter 提供，SimpleAgent 底层复用该 ChatModel）
+ai:
+  chat:
+    openai:
+      api-url: ${AI_API_URL:http://localhost:1234/v1}
+      api-key: ${AI_API_KEY:sk-your-api-key}
+      model: ${AI_MODEL:gpt-3.5-turbo}
+      provider: openai
+      logging-enabled: true
+
+logging:
+  level:
+    com.example.ai: DEBUG
+    org.noear: INFO

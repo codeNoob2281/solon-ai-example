@@ -76,6 +76,25 @@ solon-ai-example/
             ├── application.yml
             ├── sql/knowledge_base.sql             # MySQL 表结构（与懒建表语句一致）
             └── docs/                              # 示例知识文档（sample.md/txt/html）
+└── agent-example/                    # Agent 示例应用（SimpleAgent 评论情感分析）
+    ├── pom.xml
+    └── src/main/
+        ├── java/com/example/ai/agent/
+        │   ├── AgentExampleApplication.java          # 入口（启动前加载 .env）
+        │   ├── config/
+        │   │   ├── SentimentAgentConfig.java         # SimpleAgent Bean（角色/指令/输出 Schema/重试）
+        │   │   ├── WeatherAgentConfig.java           # SimpleAgent Bean + FunctionTool（本地 mock 天气工具）
+        │   │   └── OpenApiConfig.java                # Swagger 配置
+        │   ├── controller/
+        │   │   ├── SentimentAnalysisController.java  # POST /agent/sentiment/analyze
+        │   │   └── WeatherAgentController.java       # POST /agent/weather/query
+        │   ├── service/
+        │   │   ├── CommentSentimentService.java      # 调用 SimpleAgent + 情感标签归一化
+        │   │   └── WeatherAgentService.java          # 天气查询（Agent 自动调用 mock 工具）
+        │   ├── tool/
+        │   │   └── WeatherMockData.java              # 天气本地 Mock 数据源（确定性伪随机）
+        │   └── dto/                                  # CommentInput / CommentSentimentResult / WeatherQueryInput / WeatherInfo
+        └── resources/application.yml
 ```
 
 ## 构建
@@ -234,6 +253,10 @@ ChatModel agent = ChatModel.of("https://api.moark.com/v1/chat/completions")
   - `milvus-sdk-java` 2.6.3（自建子块仓库 `MilvusChildRepository`，`parent_id` 独立字段）
   - `mybatis-plus-boot-starter` 3.5.5 + `mysql-connector-j`（MySQL 文档表/父块表）
   - `solon-ai-load-markdown` + `solon-ai-load-html`（文档加载器）
+- `agent-example`（Agent 示例应用）:
+  - `llm-core`
+  - `spring-boot-starter-web`
+  - `solon-ai-agent`（SimpleAgent 等；传递依赖 `solon-ai` 聚合包 + `solon-flow` + `solon-expression`）
 
 ---
 
@@ -392,3 +415,79 @@ curl -X POST http://localhost:8081/rag/ask \
 > 首次调用 `/rag/ingest/*` 或 `/rag/search` 时才建连/建集合/建表。
 >
 > **已知取舍**：MySQL↔Milvus 双写无跨库原子性；同一文档重复入库会以新 id 累积（文档删除/重建接口未实现）。
+
+---
+
+## Agent 示例（agent-example）
+
+参考官方文档：
+- [《agent 事件》](https://solon.noear.org/article/1496)
+
+**基于 `solon-ai-agent` 的 `SimpleAgent`（@Preview API）实现电商用户评论五维度情感分析：
+从商品属性（productAttributes）、商品质量（productQuality）、外观设计（appearanceDesign）、
+使用体验（userExperience）、价格价值（costPerformance）五个维度输出情感标签
+`POS`（正向）/ `NEG`（负向）/ `NTU`（中性）/ `UNKNOW`（无法分析）。**
+
+### 实现要点
+
+- `SentimentAgentConfig`：装配 `SimpleAgent` Bean——`SimpleAgent.of(chatModel)` 复用 llm-core 的
+  `ChatModel` 自动装配；`.role()` + `.instruction()` 组装为「## 你的角色 + ## 执行指令」SystemPrompt；
+  `.outputSchema(CommentSentimentResult.class)` 由 DTO 生成 JSON Schema 注入提示词并自动开启
+  `response_format=json_object`（OpenAI 兼容方言）；`.modelOptions(temperature=0.1)` 降低分类随机性；
+  `.retryConfig(3, 1000)` 失败指数退避重试；`.sessionWindowSize(0)` 无状态单次分析。
+- `CommentSentimentService`：评论 DTO 序列化为 JSON 作为用户提示词 → `agent.prompt(...).call()`
+  → `SimpleResponse.toBean(CommentSentimentResult.class)` 解析结构化结果（自动截取 JSON 片段，
+  容错 markdown 围栏）→ 情感标签归一化（非法/缺失值兜底 `UNKNOW`）。
+- 接口：`POST /agent/sentiment/analyze`，Swagger UI：http://localhost:8082/swagger-ui.html
+  （实际端口以 `.env` 的 `SERVER_PORT` 为准，默认 8082）。
+
+### 使用示例
+
+```bash
+# 构建后运行（根目录 .env 注入配置）
+java -jar agent-example/target/agent-example.jar
+
+# 五维度情感分析
+curl -X POST http://localhost:8082/agent/sentiment/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"commentId":"c20260912001","content":"手机外观很漂亮，电池不太耐用，这个价格还算划算。"}'
+```
+
+响应示例：
+
+```json
+{
+  "productAttributes": "UNKNOW",
+  "productQuality": "NEG",
+  "appearanceDesign": "POS",
+  "userExperience": "NTU",
+  "costPerformance": "POS"
+}
+```
+
+### 工具调用示例（天气查询，本地 mock）
+
+基于 `SimpleAgent` 的工具调用（Function Calling）：`WeatherAgentConfig` 用 `FunctionToolDesc`
+编程式声明本地 mock 天气工具 `get_weather_by_city_and_date`（参数 city/date + `doHandle` 处理器，
+数据由 `WeatherMockData` 以 `city#date` 哈希做确定性伪随机生成，**不走真实天气 API**），
+经 `defaultToolAdd` 挂到 Agent；框架 `autoToolCall` 默认开启，模型自动发起工具调用，
+工具结果回传后按指令约束汇总为 JSON 输出。
+
+> 说明：该示例刻意不用 `outputSchema`（其触发 `response_format=json_object`，
+> 与工具调用同开时部分 OpenAI 兼容服务会拒绝），改为指令约束 + `toBean` 容错解析。
+
+```bash
+curl -X POST http://localhost:8082/agent/weather/query \
+  -H "Content-Type: application/json" \
+  -d '{"city":"北京","date":"2026-09-14"}'
+```
+
+响应示例：
+
+```json
+{
+  "weather": "多云",
+  "minTemperature": 18,
+  "maxTemperature": 26
+}
+```
