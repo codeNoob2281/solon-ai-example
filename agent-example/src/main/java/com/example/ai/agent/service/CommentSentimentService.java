@@ -1,15 +1,15 @@
 package com.example.ai.agent.service;
 
+import com.alibaba.fastjson2.JSON;
 import com.example.ai.agent.config.SentimentAgentConfig;
 import com.example.ai.agent.dto.CommentInput;
 import com.example.ai.agent.dto.CommentSentimentResult;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.agent.simple.SimpleAgent;
 import org.noear.solon.ai.agent.simple.SimpleResponse;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.Resource;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Locale;
@@ -34,13 +34,11 @@ public class CommentSentimentService {
             SentimentAgentConfig.SENTIMENT_NTU,
             SentimentAgentConfig.SENTIMENT_UNKNOW));
 
-    private final SimpleAgent commentSentimentAgent;
-    private final ObjectMapper objectMapper;
-
-    public CommentSentimentService(SimpleAgent commentSentimentAgent, ObjectMapper objectMapper) {
-        this.commentSentimentAgent = commentSentimentAgent;
-        this.objectMapper = objectMapper;
-    }
+    /**
+     * 情感分析 SimpleAgent（@Resource 按名称匹配 Bean commentSentimentAgent）
+     */
+    @Resource
+    private SimpleAgent commentSentimentAgent;
 
     /**
      * 分析单条用户评论的五维度情感
@@ -74,11 +72,7 @@ public class CommentSentimentService {
      * 构建用户提示词：评论序列化为 JSON 传入（与需求定义的输入结构一致）
      */
     private String buildUserPrompt(CommentInput input) {
-        try {
-            return "待分析的用户评论：\n" + objectMapper.writeValueAsString(input);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("评论参数序列化失败: " + e.getMessage(), e);
-        }
+        return "待分析的用户评论：\n" + JSON.toJSONString(input);
     }
 
     /**

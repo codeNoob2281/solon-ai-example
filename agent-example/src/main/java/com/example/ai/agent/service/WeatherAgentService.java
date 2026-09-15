@@ -1,13 +1,14 @@
 package com.example.ai.agent.service;
 
+import com.alibaba.fastjson2.JSON;
 import com.example.ai.agent.dto.WeatherInfo;
 import com.example.ai.agent.dto.WeatherQueryInput;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.agent.simple.SimpleAgent;
 import org.noear.solon.ai.agent.simple.SimpleResponse;
 import org.springframework.stereotype.Service;
+
+import javax.annotation.Resource;
 
 /**
  * 天气查询服务（SimpleAgent 工具调用示例）
@@ -20,13 +21,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class WeatherAgentService {
 
-    private final SimpleAgent weatherAgent;
-    private final ObjectMapper objectMapper;
-
-    public WeatherAgentService(SimpleAgent weatherAgent, ObjectMapper objectMapper) {
-        this.weatherAgent = weatherAgent;
-        this.objectMapper = objectMapper;
-    }
+    /**
+     * 天气查询 SimpleAgent（@Resource 按名称匹配 Bean weatherAgent）
+     */
+    @Resource
+    private SimpleAgent weatherAgent;
 
     /**
      * 查询指定城市/日期的天气（由 Agent 自动调用 mock 工具完成）
@@ -63,11 +62,7 @@ public class WeatherAgentService {
      * 构建用户提示词：查询参数序列化为 JSON 传入（与需求定义的输入结构一致）
      */
     private String buildUserPrompt(WeatherQueryInput input) {
-        try {
-            return "请查询以下天气信息：\n" + objectMapper.writeValueAsString(input);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("天气查询参数序列化失败: " + e.getMessage(), e);
-        }
+        return "请查询以下天气信息：\n" + JSON.toJSONString(input);
     }
 
     private boolean isBlank(String text) {
