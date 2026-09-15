@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
@@ -89,23 +90,20 @@ public class KnowledgeBaseStore {
     private static final String DDL_FULLTEXT_INDEX =
             "ALTER TABLE kb_chunk ADD FULLTEXT INDEX " + FULLTEXT_INDEX_NAME + " (content) WITH PARSER ngram";
 
-    private final JdbcTemplate jdbcTemplate;
-    private final KbDocumentMapper documentMapper;
-    private final KbChunkMapper chunkMapper;
+    @Resource
+    private JdbcTemplate jdbcTemplate;
+
+    @Resource
+    private KbDocumentMapper documentMapper;
+
+    @Resource
+    private KbChunkMapper chunkMapper;
 
     /** 懒建表完成标记（volatile + 双检锁） */
     private volatile boolean initialized = false;
 
     /** 懒建全文索引完成标记（volatile + 双检锁，仅关键词检索策略触达） */
     private volatile boolean fulltextIndexReady = false;
-
-    public KnowledgeBaseStore(JdbcTemplate jdbcTemplate,
-                              KbDocumentMapper documentMapper,
-                              KbChunkMapper chunkMapper) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.documentMapper = documentMapper;
-        this.chunkMapper = chunkMapper;
-    }
 
     /**
      * 生成实体主键：UUID hex（32 位，与表 VARCHAR(32) / Milvus VarChar(64) 匹配）

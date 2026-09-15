@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.annotation.Resource;
+
 /**
  * 评论情感分析接口（SimpleAgent 示例）
  * <pre>
@@ -24,11 +26,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/agent/sentiment")
 public class SentimentAnalysisController {
 
-    private final CommentSentimentService commentSentimentService;
-
-    public SentimentAnalysisController(CommentSentimentService commentSentimentService) {
-        this.commentSentimentService = commentSentimentService;
-    }
+    @Resource
+    private CommentSentimentService commentSentimentService;
 
     /**
      * 用户评论五维度情感分析：POST /agent/sentiment/analyze

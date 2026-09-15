@@ -5,6 +5,7 @@ import com.example.ai.rag.dto.SearchHit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.Resource;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -50,17 +51,14 @@ public class HybridRrfRetrievalStrategy implements RagRetrievalStrategy {
      */
     private static final int DEFAULT_LIMIT = 4;
 
-    private final ParentChildRetrievalStrategy vectorStrategy;
-    private final MysqlFullTextRetrievalStrategy keywordStrategy;
-    private final RagProperties properties;
+    @Resource
+    private ParentChildRetrievalStrategy vectorStrategy;
 
-    public HybridRrfRetrievalStrategy(ParentChildRetrievalStrategy vectorStrategy,
-                                      MysqlFullTextRetrievalStrategy keywordStrategy,
-                                      RagProperties properties) {
-        this.vectorStrategy = vectorStrategy;
-        this.keywordStrategy = keywordStrategy;
-        this.properties = properties;
-    }
+    @Resource
+    private MysqlFullTextRetrievalStrategy keywordStrategy;
+
+    @Resource
+    private RagProperties properties;
 
     @Override
     public String name() {

@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.annotation.Resource;
+
 /**
  * 天气查询接口（SimpleAgent 工具调用示例）
  * <pre>
@@ -25,11 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/agent/weather")
 public class WeatherAgentController {
 
-    private final WeatherAgentService weatherAgentService;
-
-    public WeatherAgentController(WeatherAgentService weatherAgentService) {
-        this.weatherAgentService = weatherAgentService;
-    }
+    @Resource
+    private WeatherAgentService weatherAgentService;
 
     /**
      * 天气查询：POST /agent/weather/query

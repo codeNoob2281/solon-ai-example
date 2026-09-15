@@ -13,10 +13,10 @@ import org.noear.solon.ai.rag.DocumentSplitter;
 import org.noear.solon.ai.rag.RepositoryStorable;
 import org.noear.solon.ai.rag.loader.HtmlSimpleLoader;
 import org.noear.solon.ai.rag.loader.TextLoader;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.Resource;
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -75,26 +75,28 @@ public class RagIngestionService {
      */
     public static final String META_CHILD_INDEX = "child_index";
 
-    private final RepositoryStorable repository;
-    private final DocumentSplitter parentSplitter;
-    private final DocumentSplitter childSplitter;
-    private final KnowledgeBaseStore knowledgeBaseStore;
-    private final RagProperties properties;
-    private final ExecutorService ingestExecutor;
+    /**
+     * 子块向量仓库注入点保持 {@code @Lazy}（字段注入经按类型回退解析，懒代理生效）：
+     * 应用启动不依赖 Milvus 在线，首次使用知识库时才建连/建集合。
+     */
+    @Lazy
+    @Resource
+    private RepositoryStorable repository;
 
-    public RagIngestionService(@Lazy RepositoryStorable repository,
-                               @Qualifier("parentSplitter") DocumentSplitter parentSplitter,
-                               @Qualifier("childSplitter") DocumentSplitter childSplitter,
-                               KnowledgeBaseStore knowledgeBaseStore,
-                               RagProperties properties,
-                               @Qualifier("ragIngestExecutor") ExecutorService ingestExecutor) {
-        this.repository = repository;
-        this.parentSplitter = parentSplitter;
-        this.childSplitter = childSplitter;
-        this.knowledgeBaseStore = knowledgeBaseStore;
-        this.properties = properties;
-        this.ingestExecutor = ingestExecutor;
-    }
+    @Resource(name = "parentSplitter")
+    private DocumentSplitter parentSplitter;
+
+    @Resource(name = "childSplitter")
+    private DocumentSplitter childSplitter;
+
+    @Resource
+    private KnowledgeBaseStore knowledgeBaseStore;
+
+    @Resource
+    private RagProperties properties;
+
+    @Resource(name = "ragIngestExecutor")
+    private ExecutorService ingestExecutor;
 
     /**
      * 入库一段原始文本

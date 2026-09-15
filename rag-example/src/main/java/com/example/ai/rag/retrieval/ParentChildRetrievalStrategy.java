@@ -11,6 +11,7 @@ import org.noear.solon.ai.rag.util.QueryCondition;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.Resource;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -42,14 +43,16 @@ import java.util.Map;
 @Component
 public class ParentChildRetrievalStrategy implements RagRetrievalStrategy {
 
-    private final RepositoryStorable repository;
-    private final KnowledgeBaseStore knowledgeBaseStore;
+    /**
+     * {@code RepositoryStorable} 注入点保持 {@code @Lazy}（字段注入经按类型回退解析，懒代理生效）：
+     * 应用启动不依赖 Milvus 在线，首次检索时才建连/建集合。
+     */
+    @Lazy
+    @Resource
+    private RepositoryStorable repository;
 
-    public ParentChildRetrievalStrategy(@Lazy RepositoryStorable repository,
-                                        KnowledgeBaseStore knowledgeBaseStore) {
-        this.repository = repository;
-        this.knowledgeBaseStore = knowledgeBaseStore;
-    }
+    @Resource
+    private KnowledgeBaseStore knowledgeBaseStore;
 
     @Override
     public String name() {

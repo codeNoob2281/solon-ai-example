@@ -6,6 +6,7 @@ import com.example.ai.rag.storage.KnowledgeBaseStore;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,11 +47,8 @@ public class MysqlFullTextRetrievalStrategy implements RagRetrievalStrategy {
      */
     private static final int DEFAULT_LIMIT = 4;
 
-    private final KnowledgeBaseStore knowledgeBaseStore;
-
-    public MysqlFullTextRetrievalStrategy(KnowledgeBaseStore knowledgeBaseStore) {
-        this.knowledgeBaseStore = knowledgeBaseStore;
-    }
+    @Resource
+    private KnowledgeBaseStore knowledgeBaseStore;
 
     @Override
     public String name() {
