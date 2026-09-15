@@ -2,6 +2,7 @@ package com.example.ai.agent.config;
 
 import com.example.ai.agent.interceptor.SimpleLoggingAgentInterceptor;
 import com.example.ai.agent.tool.WeatherMockData;
+import com.example.ai.agent.tool.WeatherQueryToolProvider;
 import org.noear.solon.ai.agent.simple.SimpleAgent;
 import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.chat.tool.FunctionTool;
@@ -25,7 +26,9 @@ import java.util.Objects;
 @Configuration
 public class WeatherAgentConfig {
 
-    /** 天气查询工具名（与指令中引用保持一致） */
+    /**
+     * 天气查询工具名（与指令中引用保持一致）
+     */
     public static final String WEATHER_TOOL_NAME = "get_weather_by_city_and_date";
 
     /**
@@ -40,31 +43,15 @@ public class WeatherAgentConfig {
             + "气温为整数（摄氏度），不带单位。";
 
     /**
-     * 本地 mock 天气查询工具（编程式声明：name + 参数 Schema + 处理器）
-     */
-    @Bean
-    public FunctionTool weatherFunctionTool() {
-        return new FunctionToolDesc(WEATHER_TOOL_NAME)
-                .title("天气查询")
-                .description("查询指定城市在指定日期的天气情况（本地模拟数据源），"
-                        + "返回天气状况、最低气温、最高气温。")
-                .stringParamAdd("city", "城市名称，如：北京")
-                .stringParamAdd("date", "查询日期，格式 yyyy-MM-dd")
-                .doHandle(args -> WeatherMockData.query(
-                        Objects.toString(args.get("city"), ""),
-                        Objects.toString(args.get("date"), "")));
-    }
-
-    /**
      * 天气查询 SimpleAgent：绑定 ChatModel + mock 天气工具
      */
     @Bean
-    public SimpleAgent weatherAgent(ChatModel chatModel, FunctionTool weatherFunctionTool) {
+    public SimpleAgent weatherAgent(ChatModel chatModel, WeatherQueryToolProvider weatherQueryToolProvider) {
         return SimpleAgent.of(chatModel)
                 .name("weather_agent")
                 .role("天气查询助手")
                 .instruction(WEATHER_INSTRUCTION)
-                .defaultToolAdd(weatherFunctionTool)
+                .defaultToolAdd(weatherQueryToolProvider)
                 .defaultInterceptorAdd(new SimpleLoggingAgentInterceptor())
                 .modelOptions(options -> options.temperature(0.1d))
                 .retryConfig(3, 1000)
