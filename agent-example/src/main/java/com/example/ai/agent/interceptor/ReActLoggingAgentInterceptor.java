@@ -17,7 +17,7 @@ public class ReActLoggingAgentInterceptor extends AbsReActInterceptor {
 
     @Override
     public void onAgentStart(ReActTrace trace) {
-        log.info("[TravelAgent] 开始执行: agent={}, prompt={}",
+        log.info("[AgentLogger] 开始执行: agent={}, prompt={}",
                 trace.getAgentName(),
                 trace.getOriginalPrompt() == null ? null : trace.getOriginalPrompt().getUserContent());
     }
@@ -26,17 +26,17 @@ public class ReActLoggingAgentInterceptor extends AbsReActInterceptor {
     public void onToolCallEnd(ReActTrace trace, ToolExchanger toolExchanger,
                               ChatMessage observation, Throwable error, long durationMs) {
         if (error != null) {
-            log.warn("[TravelAgent] 工具调用失败: name={}, args={}, duration={}ms, error={}",
+            log.warn("[AgentLogger] 工具调用失败: name={}, args={}, duration={}ms, error={}",
                     toolExchanger.getToolName(), toolExchanger.getArgs(), durationMs, error.getMessage());
         } else {
-            log.info("[TravelAgent] 工具调用完成: name={}, duration={}ms",
+            log.info("[AgentLogger] 工具调用完成: name={}, duration={}ms",
                     toolExchanger.getToolName(), durationMs);
         }
     }
 
     @Override
     public void onAgentEnd(ReActTrace trace) {
-        log.info("[TravelAgent] 执行结束: turns={}, toolCalls={}, plans={}, abnormal={}",
+        log.info("[AgentLogger] 执行结束: turns={}, toolCalls={}, plans={}, abnormal={}",
                 trace.getTurnCount(), trace.getToolCallCount(),
                 trace.getPlans().size(), trace.isAbnormal());
     }

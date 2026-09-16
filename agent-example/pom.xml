@@ -32,6 +32,16 @@
             <version>${solon-ai.version}</version>
         </dependency>
 
+        <!--
+          Solon AI UI 协议适配（版本由父 POM dependencyManagement 管理）
+          AiSdkStreamWrapper：Agent 事件流 → Vercel AI SDK UI Message Stream Protocol v1 SSE，
+          前端 @ai-sdk/react useChat 直接对接
+        -->
+        <dependency>
+            <groupId>org.noear</groupId>
+            <artifactId>solon-ai-ui-aisdk</artifactId>
+        </dependency>
+
         <!-- Spring Boot Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

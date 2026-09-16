@@ -20,6 +20,10 @@ log/
 # 会话记忆运行时数据（FileChatSession 落盘目录，临时数据不提交）
 temp/
 
+# 前端依赖（agent-example/frontend，构建产物 static 已提交）
+node_modules/
+npm-install.log
+
 # 操作系统
 .DS_Store
 Thumbs.db

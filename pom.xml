@@ -40,6 +40,17 @@
     <dependencyManagement>
         <dependencies>
             <!--
+              Solon AI UI 协议适配（solon-ai-ui 子项目，Central 已发布 4.1.0）
+              将 ChatModel/Agent 事件流包装为 Vercel AI SDK UI Message Stream Protocol v1 SSE，
+              供 @ai-sdk/react 的 useChat 直接消费（依赖 solon-ai-core，传递 solon-web-sse）
+            -->
+            <dependency>
+                <groupId>org.noear</groupId>
+                <artifactId>solon-ai-ui-aisdk</artifactId>
+                <version>${solon-ai.version}</version>
+            </dependency>
+
+            <!--
               OpenAPI 3 / Swagger 文档（springdoc 1.x 是最后支持 Spring Boot 2.x + Java 8 的分支）
               Swagger UI: http://localhost:{port}/swagger-ui.html
               OpenAPI JSON: http://localhost:{port}/v3/api-docs
