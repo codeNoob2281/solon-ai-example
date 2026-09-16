@@ -36,7 +36,7 @@ solon-ai-example/
 ├── llm-core/               # Starter：Solon AI ChatModel 自动装配 + .env 加载器
 ├── llm-chat-example/       # 对话示例应用
 ├── rag-example/            # 传统 RAG 示例（父子分段：父块存 MySQL，子块存 Milvus）
-└── agent-example/          # Agent 示例应用（SimpleAgent 电商评论五维度情感分析）
+└── agent-example/          # Agent 示例应用（SimpleAgent 电商评论五维度情感分析 + ReActAgent 出行规划）
 ```
 
 ## 关键约定

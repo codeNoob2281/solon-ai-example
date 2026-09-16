@@ -1,6 +1,7 @@
 package com.example.ai.agent.tool;
 
 import com.example.ai.agent.config.WeatherAgentConfig;
+import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.annotation.ToolMapping;
 import org.noear.solon.ai.chat.tool.AbsToolProvider;
 import org.noear.solon.annotation.Param;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
  * @projectName: solon-ai-example
  * @date 2026/9/14
  */
+@Slf4j
 @Component
 public class WeatherQueryToolProvider extends AbsToolProvider {
 
@@ -22,6 +24,9 @@ public class WeatherQueryToolProvider extends AbsToolProvider {
             + "返回天气状况、最低气温、最高气温。")
     public static String query(@Param(description = "城市名称，如：北京") String city,
                                @Param(description = "查询日期，格式 yyyy-MM-dd") String date) {
-        return WeatherMockData.query(city, date);
+        log.info("[WeatherTool] 请求: city={}, date={}", city, date);
+        String result = WeatherMockData.query(city, date);
+        log.info("[WeatherTool] 响应: {}", result);
+        return result;
     }
 }
