@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Streamdown 的组件类名写在其包内源码里，Tailwind v4 默认不扫 node_modules，
+   不声明来源则其渲染的表格工具栏 / 复制下拉 / 全屏层等全部没有样式 */
+@source "../node_modules/streamdown/dist";
+
 @custom-variant dark (&:is(.dark *));
 
 /*
@@ -8,7 +12,11 @@
  * 出行规划工作台根节点挂 .ai-theme，组件库的 bg-background / text-muted-foreground
  * 等工具类在此容器内解析；容器外的手写样式（对话 demo 等）不受影响。
  */
-.ai-theme {
+.ai-theme,
+/* Streamdown 的全屏层（表格 / mermaid）经 portal 挂到 body，位于 .ai-theme 之外，
+   须在宿主元素上补齐同一套令牌，否则 bg-background 等解析不到（全屏层会透明） */
+[data-streamdown="table-fullscreen"],
+[data-streamdown="mermaid-fullscreen"] {
   --background: #ffffff;
   --foreground: #1f2430;
   --card: #ffffff;
@@ -28,6 +36,7 @@
   --border: #e5e9f2;
   --input: #e5e9f2;
   --ring: #4f6ef7;
+  --sidebar: #f7f8fc;
   --radius: 0.75rem;
 }
 
@@ -51,6 +60,7 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -416,7 +426,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
-  max-width: 860px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 0 16px 16px;
 }
@@ -447,6 +457,26 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* 聊天气泡颜色稍深：出行页用户消息气泡（覆盖 .ai-theme 的 bg-secondary 令牌，仅作用于 .turn 作用域） */
+.travel .turn {
+  --secondary: #dfe4f5;
+  --secondary-foreground: #1f2430;
+}
+
+/* 助手消息气泡：与用户消息同色系（浅蓝灰底 + 深色文字，无左侧边框） */
+.travel .turn .is-assistant > div {
+  background: #eef1fb;
+  border: 1px solid #dfe4f5;
+  border-radius: 0.75rem;
+  padding: 12px 16px;
+  color: #1f2430;
+}
+
+/* 助手消息内容与用户消息同色（--secondary-foreground 已为 #1f2430，此处在 .md 上显式收口） */
+.travel .turn .md {
+  color: #1f2430;
 }
 
 .trace {
@@ -545,4 +575,16 @@ body {
   padding: 2px 12px;
   border-left: 3px solid var(--border);
   color: var(--muted);
+}
+
+/* Streamdown 表格复制/下载下拉：面板绝对定位的容纳块是按钮本身（约 24px 宽），
+   shrink-to-fit 会把面板压窄到 min-w 下限导致选项换行拥挤，
+   这里改为按内容自适应宽度、选项不换行 */
+[data-streamdown="table-wrapper"] div.absolute {
+  width: max-content;
+  max-width: min(80vw, 320px);
+}
+
+[data-streamdown="table-wrapper"] div.absolute > button {
+  white-space: nowrap;
 }
