@@ -1,6 +1,17 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, UIMessage } from 'ai';
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from '@/components/ai-elements/message';
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from '@/components/ai-elements/reasoning';
+import { Shimmer } from '@/components/ai-elements/shimmer';
 
 /**
  * Solon AI Agent 流式对话页（纯对话 demo，AI SDK 协议）
@@ -10,6 +21,11 @@ import { DefaultChatTransport, UIMessage } from 'ai';
  *   → agent-example AgentChatController（ReActAgent + AiSdkStreamWrapper）
  *   → AI SDK UI Message Stream Protocol v1 SSE（start/text-delta/finish…）
  *   → 前端逐字渲染
+ *
+ * 组件映射：
+ *   消息 → Message / MessageContent / MessageResponse（Streamdown 渲染 Markdown）
+ *   思考 → Reasoning / ReasoningTrigger / ReasoningContent
+ *          （流式自动展开、结束后 1s 自动收起，历史消息默认收起可回看）
  *
  * 多轮会话：chatId 由前端生成，useChat({ id }) 随请求体上报，
  * 后端按 chatId 维持 AgentSession 注入对话历史。
@@ -25,30 +41,22 @@ function reasoningTextOf(part: UIMessage['parts'][number]): string {
   return typeof text === 'string' ? text : '';
 }
 
-function findLastIndex<T>(list: T[], predicate: (item: T) => boolean): number {
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (predicate(list[i])) {
-      return i;
-    }
-  }
-  return -1;
-}
-
 function MessageBubble({ message, streaming }: { message: UIMessage; streaming: boolean }) {
-  const isUser = message.role === 'user';
-  const hasText = message.parts.some(part => part.type === 'text' && part.text);
+  const hasVisible = message.parts.some(
+    part =>
+      (part.type === 'text' && part.text) ||
+      (part.type === 'reasoning' && reasoningTextOf(part)),
+  );
 
   return (
-    <div className={`msg ${isUser ? 'msg-user' : 'msg-ai'}`}>
-      <div className="msg-avatar">{isUser ? '你' : 'AI'}</div>
-      <div className="msg-bubble">
+    <Message from={message.role}>
+      <MessageContent>
         {message.parts.map((part, index) => {
           if (part.type === 'text' && part.text) {
             return (
-              <div key={index} className="msg-text">
+              <MessageResponse key={index} className="md">
                 {part.text}
-                {streaming && !isUser ? <span className="caret" /> : null}
-              </div>
+              </MessageResponse>
             );
           }
           if (part.type === 'reasoning') {
@@ -56,21 +64,37 @@ function MessageBubble({ message, streaming }: { message: UIMessage; streaming: 
             if (!text) {
               return null;
             }
+            // 流式中的最后一段 reasoning 视为生成中（自动展开），结束后组件自动收起
             return (
-              <details key={index} className="msg-reasoning">
-                <summary>思考过程</summary>
-                <div>{text}</div>
-              </details>
+              <Reasoning
+                key={index}
+                isStreaming={streaming && index === message.parts.length - 1}
+              >
+                <ReasoningTrigger
+                  getThinkingMessage={(isStreaming, duration) =>
+                    isStreaming ? (
+                      <Shimmer duration={1}>思考中…</Shimmer>
+                    ) : duration ? (
+                      <p>已思考 {duration} 秒</p>
+                    ) : (
+                      <p>思考过程</p>
+                    )
+                  }
+                />
+                <ReasoningContent className="md">{text}</ReasoningContent>
+              </Reasoning>
             );
           }
           // 其余分片（step-start / data-agent-event / 工具分片等）当前页暂不渲染
           return null;
         })}
-        {streaming && !isUser && !hasText ? (
-          <span className="pending-text">正在思考…</span>
+        {streaming && !hasVisible ? (
+          <Shimmer className="text-sm" duration={1.5}>
+            正在思考…
+          </Shimmer>
         ) : null}
-      </div>
-    </div>
+      </MessageContent>
+    </Message>
   );
 }
 
@@ -112,11 +136,11 @@ function ChatPanel({ chatId, onNewChat }: { chatId: string; onNewChat: () => voi
     sendMessage({ text });
   };
 
-  // 流式期间最后一条 assistant 消息显示打字光标
+  // 流式期间最后一条 assistant 消息显示生成中状态
   const lastAiIndex = busy ? findLastIndex(messages, m => m.role === 'assistant') : -1;
 
   return (
-    <div className="chat">
+    <div className="chat ai-theme">
       <header className="page-header">
         <div>
           <h1>Solon AI Agent 对话</h1>
@@ -171,4 +195,13 @@ function ChatPanel({ chatId, onNewChat }: { chatId: string; onNewChat: () => voi
       </form>
     </div>
   );
+}
+
+function findLastIndex<T>(list: T[], predicate: (item: T) => boolean): number {
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (predicate(list[i])) {
+      return i;
+    }
+  }
+  return -1;
 }
