@@ -16,19 +16,20 @@ import java.time.format.DateTimeFormatter;
  * <p>
  * 用户以一句话自然语言输入，<b>意图识别、信息澄清、出行规划全部在 Agent 层完成</b>：
  * <ul>
+ *   <li>职责边界：仅处理出行规划相关任务，无关请求直接以自然语言拒绝并说明原因
+ *       （不进入工作流程、不调用任何工具）；</li>
  *   <li>意图识别：Agent 从用户输入（含多轮历史）抽取三要素（出发城市/目标城市/期望到达时刻）；</li>
- *   <li>意图澄清：要素缺失时 Agent 不调工具、直接输出澄清 JSON 追问，
+ *   <li>意图澄清：要素缺失时 Agent 不调工具，直接以自然语言追问（一次问全），
  *       服务层以 {@code InMemoryAgentSession} 按 sessionId 维持多轮会话；</li>
  *   <li>规划执行：要素齐备后 planningMode(true) 注入 create_plan 等计划工具，
  *       Agent 先拆解计划，再按 ReAct 循环依次调用本地 Mock 工具
- *       （两地天气 / 路线概况 / 火车票 / 机票），输出结构化 JSON 建议。</li>
+ *       （两地天气 / 路线概况 / 火车票 / 机票），以自然语言（可为 Markdown）给出建议。</li>
  * </ul>
  * 指令经 {@code instruction(Function)} 动态构建：每次推理在系统提示词<b>末尾</b>注入当前日期
  * （动态内容置于末尾，静态任务指令在前），供 Agent 将"今天/明天"等相对日期换算为具体 travelDate。
  * <p>
- * 说明：刻意不使用 outputSchema（其会触发 response_format=json_object，
- * 与工具调用同开时部分 OpenAI 兼容服务会拒绝），改为在指令中约束输出 JSON 结构
- * （澄清/规划双形态，见 TravelPlanResponse），由服务层容错解析。
+ * 说明：响应格式不做限制——不使用 outputSchema，也不在指令中约束 JSON 结构，
+ * Agent 以自然语言回复（可为 Markdown 格式），服务层原样透出（仅回填 sessionId）。
  */
 @Configuration
 public class TravelAgentConfig {
@@ -61,11 +62,20 @@ public class TravelAgentConfig {
             + "3) 查询火车票；4) 查询机票；5) 综合对比给出最终建议。";
 
     /**
-     * 出行规划助手指令模板：意图识别 → 意图澄清 → 规划执行 → 筛选建议 → 最终 JSON 输出契约
+     * 出行规划助手指令模板：意图识别 → 意图澄清 → 规划执行 → 筛选建议 → 自然语言输出约定
      */
     private static final String TRAVEL_INSTRUCTION_TEMPLATE = ""
             + "你是出行规划助手。用户会用一句自然语言提出出行需求（可能口语化、信息不全），"
             + "你负责意图识别、信息澄清与出行规划。\n\n"
+            + "## 职责边界（必须遵守）\n"
+            + "你只处理出行规划相关任务：城市间出行方案规划、交通方式（火车/机票）查询与对比、"
+            + "行程日期与时刻安排、结合两地天气的出行建议，以及围绕这些信息的澄清与追问。\n"
+            + "任何时候收到与出行规划无关的请求（例如写代码、翻译、写文章、数学计算、"
+            + "其他领域知识问答、闲聊等）：\n"
+            + "不要进入下方工作流程，不要调用任何工具（包括 create_plan 等计划工具），"
+            + "直接以中文自然语言礼貌拒绝——简要说明你只能协助出行规划并解释原因，"
+            + "举例说明你能处理的任务类型，引导用户提出出行相关需求；"
+            + "严禁变通执行，严禁编造无关任务的答案。\n\n"
             + "## 工作流程\n"
             + "第一步【意图识别】：从用户输入及历史对话中抽取三要素：\n"
             + "- departureCity：出发城市；\n"
@@ -75,10 +85,9 @@ public class TravelAgentConfig {
             + "用户未说明出行日期时，默认为明天。\n"
             + "多轮对话时，必须结合历史对话中用户已提供的信息判断要素是否齐备，不要重复询问已回答的内容。\n\n"
             + "第二步【意图澄清】：三要素中任一缺失或无法从上下文确定时：\n"
-            + "禁止调用任何工具（包括计划工具 create_plan 等），直接输出澄清 JSON；"
-            + "一次问全所有缺失项，不要逐个追问。示例：\n"
-            + "{\"needClarification\":true,\"missingFields\":[\"departureCity\"],"
-            + "\"clarificationMessage\":\"请问您从哪个城市出发？\",\"plan\":null}\n\n"
+            + "禁止调用任何工具（包括计划工具 create_plan 等），直接以中文自然语言向用户追问；"
+            + "一次问全所有缺失项，不要逐个追问。"
+            + "例如：\"请问您从哪个城市出发？期望几点前到达？\"\n\n"
             + "第三步【规划执行】：三要素齐备后，先用 create_plan 拆解执行计划，再严格按计划逐步执行：\n"
             + "1. 用 get_weather_by_city_and_date 分别查询出发城市与目标城市在 travelDate 当天的天气；\n"
             + "2. 用 " + ROUTE_TOOL_NAME + " 查询两城间路线概况（距离、是否有直达高铁/直飞）；\n"
@@ -91,19 +100,11 @@ public class TravelAgentConfig {
             + "2. 排序优先级：能按时到达 > 余票/余座充足 > 历时短 > 价格低；\n"
             + "3. 若所有车次与航班都无法按时到达，选择到达时间最接近的，并在理由中明确说明风险；\n"
             + "4. 结合两地天气给出提醒（如降雨提醒带伞、预留去车站/机场的缓冲时间）。\n\n"
-            + "## 最终输出（必须遵守）\n"
-            + "始终输出纯 JSON：不要 markdown 代码块标记，不要任何解释文字。两种形态二选一：\n"
-            + "1) 需要澄清：{\"needClarification\":true,\"missingFields\":[\"缺失要素英文名\"],"
-            + "\"clarificationMessage\":\"中文追问\",\"plan\":null}\n"
-            + "2) 规划完成：{\"needClarification\":false,\"missingFields\":null,\"clarificationMessage\":null,"
-            + "\"plan\":{\"departureCity\":\"北京\",\"targetCity\":\"上海\",\"travelDate\":\"2026-09-20\","
-            + "\"arriveTime\":\"18:00\",\"departureWeather\":\"多云\",\"targetWeather\":\"小雨\",\"distanceKm\":1200,"
-            + "\"recommendedType\":\"train\",\"recommendedOption\":{\"type\":\"train\",\"code\":\"G1024\","
-            + "\"departureTime\":\"08:15\",\"arrivalTime\":\"14:36\",\"duration\":\"6小时21分\",\"price\":\"553\","
-            + "\"seatInfo\":\"二等座余票120张\",\"note\":\"当日到达\"},"
-            + "\"reason\":\"一句话推荐理由\",\"alternatives\":[],\"reminders\":[\"提醒1\",\"提醒2\"]}}\n"
-            + "约束：recommendedType 只能是 train 或 flight；alternatives 为同结构对象的数组（可为空）；"
-            + "price 为不带单位的数字字符串；reminders 至少 1 条。\n\n"
+            + "## 最终输出\n"
+            + "始终以中文自然语言回复，响应格式不做限制，可使用 Markdown（小标题、列表、表格等）让内容更清晰：\n"
+            + "1) 需要澄清时：直接输出追问话术，不要调用工具，也不要输出 JSON；\n"
+            + "2) 规划完成时：给出出行建议，内容须涵盖推荐方案（车次/航班、出发/到达时刻、历时、价格、余票信息）、"
+            + "推荐理由、备选方案与出行提醒（结合两地天气），所有数据一律取自工具返回结果。\n\n"
             + "## 当前日期\n"
             + "{{currentDate}}\n"
             + "用户提到的\"今天/明天/后天\"等相对日期，以上述日期为准换算为 yyyy-MM-dd 具体日期（作为 travelDate）；"

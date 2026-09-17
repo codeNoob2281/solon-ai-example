@@ -1,11 +1,17 @@
 # agent-example
 
-Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web 流式对话页**：
+Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web 演示页**（左侧菜单切换）：
 
-- 后端：`solon-ai-ui-aisdk`（Solon AI UI 协议适配，Central 已发布）将 ReActAgent 事件流
-  包装为 **Vercel AI SDK UI Message Stream Protocol v1** 的 SSE；
-- 前端：React 19 + `@ai-sdk/react`（useChat），源码在本模块 `frontend/` 下，
-  构建产物输出到 `src/main/resources/static`（已提交，jar 开箱即用）。
+- **流式对话**：后端 `solon-ai-ui-aisdk`（Solon AI UI 协议适配，Central 已发布）将
+  ReActAgent 事件流包装为 **Vercel AI SDK UI Message Stream Protocol v1** 的 SSE；
+  前端 React 19 + `@ai-sdk/react`（useChat）；
+- **出行规划工作台**：ReActAgent（planningMode + 工具调用）工作过程可视化——任务列表、
+  思考链、工具调用（入参/出参/耗时）、Markdown 最终回答；走**自定义过程事件协议** SSE
+  （PlanEvent 的任务列表内容在 AI SDK 包装器中会丢失，故该页 1:1 透出 Agent 事件）；
+  UI 基于 **Vercel AI Elements 组件库**（shadcn 注册表：Task/Reasoning/Tool/Message/
+  Conversation/PromptInput，Tailwind CSS 4 + shadcn 令牌作用域于 `.ai-theme` 容器）。
+  前端源码均在本模块 `frontend/` 下，构建产物输出 `frontend/dist`
+  （前后端分离：gitignore 不入库，后端为纯 API jar，页面经 Vite dev server 或静态部署访问）。
 
 ## 流式对话链路
 
@@ -33,13 +39,35 @@ Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web
 - 阻塞的 ReAct 循环用 `subscribeOn(boundedElastic)` 移出 Tomcat 工作线程；
   客户端断开（或点「停止」）→ `onCompletion/onTimeout` → dispose → 中断 Agent 执行。
 
-## 页面访问
+## 出行规划工作台链路（自定义事件协议）
 
-应用启动后（默认端口 8082）：
+```
+前端 fetch 流式读取（POST /api/agent/travel/stream，body: {id, message}）
+  → TravelAgentStreamController：travelAgent.prompt(message).session(session).stream()
+  → 逐 AgentEvent 映射为 JSON 事件帧（start/plan/text_delta/tool_start/tool_end/finish…）
+  → SSE（data:<json>，终帧 [DONE]）→ 前端渲染任务列表 / 思考链 / 工具调用 / 最终回答
+```
 
-- 对话页：<http://localhost:8082/>（index.html）
-- 流式端点：`POST /api/agent/chat/stream`（AI SDK 协议，供 useChat 使用）
-- Swagger：<http://localhost:8082/swagger-ui.html>
+事件帧契约详见 `TravelAgentStreamController` 类注释。要点：
+
+- **不用 `AiSdkStreamWrapper`**：AI SDK 包装器将 Agent 特有事件降级为 data-* part 且仅反射
+  `getText()`，`PlanEvent` 的 `getPlans()/getPlanStage()/getPlanIndex()` 会丢失，
+  无法支撑任务列表可视化；
+- SSE 管道与对话端点同源（SseEmitter + 自主订阅 + boundedElastic + 断开中断）；
+- 多轮澄清按请求体 `id` 维持独立会话存储（与对话 demo 互不共享）；
+- 前端 Markdown 渲染用 AI Elements `MessageResponse`（内置 Streamdown）。
+
+## 页面访问（前后端分离）
+
+- **后端**（纯 API jar，端口取 `.env` 的 `SERVER_PORT`，application.yml 兜底默认 8082）：
+  - 对话流式端点：`POST /api/agent/chat/stream`（AI SDK 协议，供 useChat 使用）
+  - 出行规划流式端点：`POST /api/agent/travel/stream`（自定义过程事件协议）
+  - 出行规划（一次性）：`POST /agent/travel/plan`（自然语言结果）
+  - Swagger：<http://localhost:8082/swagger-ui.html>
+- **前端**（页面一律在前端工程侧，后端不内嵌页面）：
+  - 开发：`cd frontend && npm run dev` → <http://localhost:5173/>（`/api` 已代理到后端端口）
+  - 部署：`npm run build` 产物在 `frontend/dist`（gitignore），交给任意静态服务器，
+    并把 `/api` 反向代理到后端
 
 ## 前端开发与构建
 
@@ -48,18 +76,18 @@ Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web
 ```bash
 cd agent-example/frontend
 npm install            # 安装依赖
-npm run dev            # 开发模式（5173 端口，/api 代理到 http://localhost:8082）
-npm run build          # 构建 → 产物输出到 ../src/main/resources/static（提交进 git）
+npm run dev            # 开发模式（5173 端口，/api 代理到 .env 的 SERVER_PORT，本机 8080）
+npm run build          # 构建 → 产物输出到 dist/（gitignore 不入库）
 ```
 
-- `npm run dev` 需同时启动后端（`mvn spring-boot:run -pl agent-example` 或运行 jar）；
-- 重新构建前端后重新打包（`mvn -pl agent-example package`）即可让 jar 内页面更新。
+- `npm run dev` 需同时启动后端（`mvn spring-boot:run -pl agent-example` 或运行纯 API jar）；
+- 后端 jar 为纯 API（pom 无任何前端内嵌逻辑），页面不进 jar。
 
 ## 后端对话 Agent
 
 `ChatAgentConfig#chatAgent`：通用对话 ReActAgent（无工具、无输出 Schema，
 sessionWindowSize(20) 维持多轮上下文）。要改成对接出行规划 `travelAgent` 等已有
-Agent，只需在 `AgentChatController` 里替换注入的 Bean（注意：travelAgent 的输出
-契约是结构化 JSON，流式页将原样显示 JSON 文本）。
+Agent，只需在 `AgentChatController` 里替换注入的 Bean（travelAgent 以自然语言
+回复、格式不做限制，可为 Markdown，流式页可直接展示）。
 
 AI 模型配置复用 `llm-core` 的 ChatModel（`.env` 中 `AI_*` 键组），无新增环境变量。

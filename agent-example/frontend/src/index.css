@@ -1,3 +1,62 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * AI Elements（shadcn 令牌）：作用域限定在 .ai-theme 容器内。
+ * 出行规划工作台根节点挂 .ai-theme，组件库的 bg-background / text-muted-foreground
+ * 等工具类在此容器内解析；容器外的手写样式（对话 demo 等）不受影响。
+ */
+.ai-theme {
+  --background: #ffffff;
+  --foreground: #1f2430;
+  --card: #ffffff;
+  --card-foreground: #1f2430;
+  --popover: #ffffff;
+  --popover-foreground: #1f2430;
+  --primary: #4f6ef7;
+  --primary-foreground: #ffffff;
+  --secondary: #f0f2f8;
+  --secondary-foreground: #1f2430;
+  --muted: #f0f2f8;
+  --muted-foreground: #7a8299;
+  --accent: #eef1fb;
+  --accent-foreground: #1f2430;
+  --destructive: #c0392b;
+  --destructive-foreground: #ffffff;
+  --border: #e5e9f2;
+  --input: #e5e9f2;
+  --ring: #4f6ef7;
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 :root {
   --bg: #f5f7fb;
   --card: #ffffff;
@@ -35,7 +94,7 @@ body {
   padding: 0 16px;
 }
 
-.chat-header {
+.page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -43,9 +102,10 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.chat-header h1 {
+.page-header h1 {
   margin: 0;
   font-size: 18px;
+  font-weight: 600;
 }
 
 .chat-sub {
@@ -238,4 +298,251 @@ body {
   background: #fff1f0;
   color: #c0392b;
   border: 1px solid #f5c6c1;
+}
+
+/* ==================== 应用外壳（左侧菜单） ==================== */
+
+.app-shell {
+  display: flex;
+  height: 100%;
+}
+
+.sidebar {
+  flex: none;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  padding: 18px 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #6a8bff, #4f6ef7);
+}
+
+.brand-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 14px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  padding: 10px 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.nav-item:hover {
+  background: #eef1fb;
+}
+
+.nav-item.active {
+  background: #e6ebfd;
+}
+
+.nav-icon {
+  flex: none;
+  font-size: 18px;
+}
+
+.nav-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.nav-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.nav-desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.sidebar-foot {
+  padding: 12px 6px 0;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+
+.page-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ==================== 出行规划工作台（AI Elements 组件库） ==================== */
+
+.travel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 16px 16px;
+}
+
+/* 任务列表面板（Task 组件，固定在聊天输入框上方，可折叠/展开） */
+.plan-panel {
+  flex: none;
+  margin: 12px 0 0;
+  padding: 2px 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Conversation 自动贴底滚动区域（Conversation 根自带 flex-1 + overflow） */
+.travel-conversation {
+  margin-top: 12px;
+}
+
+/* 输入区（PromptInput 表单，Enter 提交 / 流式时为停止按钮） */
+.travel-prompt {
+  flex: none;
+  margin: 8px 0 0;
+}
+
+/* 每轮：用户消息 + 过程时间线 */
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trace {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+}
+
+/* Markdown 渲染（Streamdown 输出：MessageResponse / ReasoningContent 挂 .md 复用） */
+.md {
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  margin: 14px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.md p {
+  margin: 8px 0;
+}
+
+.md ul,
+.md ol {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.md ul {
+  list-style: disc;
+}
+
+.md ol {
+  list-style: decimal;
+}
+
+.md li {
+  margin: 3px 0;
+}
+
+.md table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+  width: 100%;
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.md th {
+  background: #f7f8fc;
+}
+
+.md code {
+  background: #f0f2f8;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 13px;
+}
+
+.md pre {
+  background: #f7f8fc;
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+.md pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.md blockquote {
+  margin: 8px 0;
+  padding: 2px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
 }

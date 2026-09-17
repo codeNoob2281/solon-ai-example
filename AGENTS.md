@@ -5,12 +5,15 @@
 ## 交付标准（重要）
 
 - **编译通过即可交付**：以 `mvn clean install -DskipTests` 全量构建（父 POM 聚合的所有模块）通过为交付门槛。
+- **纯前端改动（agent-example/frontend）无需后端验证**：只改 `frontend/` 下代码/样式时，以 `npm run build`（tsc 类型检查 + vite 构建，产物输出 `frontend/dist`，gitignore 不提交）通过为交付门槛；不要重跑后端 mvn 全量构建。**前后端分离**：后端 jar 为纯 API（不内嵌前端），页面走 `npm run dev`（Vite 5173，`/api` 代理到后端）或部署 `frontend/dist`。
 - **不做复杂的运行时/端到端测试验证**：无需起 Milvus、Ollama、大模型等外部依赖做联调验证；也不要求补充单测来证明功能正确。
 - 允许做**基础冒烟检查**（如确认 Spring 应用能正常启动到 `Started ...`），但不把端到端调用视为交付前提。
 - 修改代码后必须保证编译通过；若引入了编译错误，需要修复后再交付。
 
 ```bash
-mvn clean install -DskipTests
+mvn clean install -DskipTests                  # 后端/跨模块改动
+
+cd agent-example/frontend && npm run build     # 纯前端改动（无需 mvn）
 ```
 
 ## 提交规范
@@ -36,7 +39,7 @@ solon-ai-example/
 ├── llm-core/               # Starter：Solon AI ChatModel 自动装配 + .env 加载器
 ├── llm-chat-example/       # 对话示例应用
 ├── rag-example/            # 传统 RAG 示例（父子分段：父块存 MySQL，子块存 Milvus）
-└── agent-example/          # Agent 示例应用（SimpleAgent 电商评论五维度情感分析 + ReActAgent 出行规划 + Web 流式对话页：solon-ai-ui-aisdk AI SDK 协议 SSE + React19 前端 agent-example/frontend）
+└── agent-example/          # Agent 示例应用（SimpleAgent 电商评论五维度情感分析 + ReActAgent 出行规划 + Web 演示页（左侧菜单切换）：AI SDK 协议流式对话 + 出行规划工作台（自定义过程事件协议 SSE：任务列表/思考链/工具调用/Markdown 回答可视化）+ React19 前端 agent-example/frontend）
 ```
 
 ## 关键约定
