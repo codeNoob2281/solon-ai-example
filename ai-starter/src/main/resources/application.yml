@@ -23,8 +23,8 @@ ai:
       api-key: ${AI_API_KEY:sk-your-api-key}
       model: ${AI_MODEL:gpt-3.5-turbo}
       provider: openai
-      # 是否开启模型请求/响应日志（合并取 true：对话 / RAG 模块的默认值）
-      logging-enabled: true
+      # 是否开启模型请求/响应日志（读环境变量，默认 false）
+      logging-enabled: ${AI_CHAT_LOGGING_ENABLED:false}
 
     # 会话记忆配置（llm-chat-example ChatMemoryService，基于 FileChatSession）
     session:

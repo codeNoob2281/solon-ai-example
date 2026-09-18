@@ -22,7 +22,7 @@ ai:
       api-key: ${AI_API_KEY:sk-your-api-key}
       model: ${AI_MODEL:gpt-3.5-turbo}
       provider: openai
-      logging-enabled: true
+      logging-enabled: ${AI_CHAT_LOGGING_ENABLED:false}
 
   # RAG 示例配置（前缀 ai.rag，见 RagProperties）
   rag:

@@ -23,6 +23,6 @@ public class ChatModelProperties {
     /** 提供方标识（OpenAI 协议） */
     private String provider = "openai";
 
-    /** 是否开启模型请求/响应日志（默认开启） */
-    private boolean loggingEnabled = true;
+    /** 是否开启模型请求/响应日志（读环境变量 AI_CHAT_LOGGING_ENABLED，默认关闭） */
+    private boolean loggingEnabled = false;
 }
