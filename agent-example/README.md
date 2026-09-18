@@ -10,7 +10,7 @@ Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web
   （PlanEvent 的任务列表内容在 AI SDK 包装器中会丢失，故该页 1:1 透出 Agent 事件）；
   UI 基于 **Vercel AI Elements 组件库**（shadcn 注册表：Task/Reasoning/Tool/Message/
   Conversation/PromptInput，Tailwind CSS 4 + shadcn 令牌作用域于 `.ai-theme` 容器）。
-  前端源码均在本模块 `frontend/` 下，构建产物输出 `frontend/dist`
+  前端源码在项目根目录统一前端 `frontend/` 下（已从本模块迁出），构建产物输出 `frontend/dist`
   （前后端分离：gitignore 不入库，后端为纯 API jar，页面经 Vite dev server 或静态部署访问）。
 
 ## 流式对话链路
@@ -74,7 +74,7 @@ Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web
 前置：Node ≥ 22（本机 `node` 已是 v24）。
 
 ```bash
-cd agent-example/frontend
+cd frontend            # 项目根目录下的统一前端（已从 agent-example/frontend 迁出）
 npm install            # 安装依赖
 npm run dev            # 开发模式（5173 端口，/api 代理到 .env 的 SERVER_PORT，本机 8080）
 npm run build          # 构建 → 产物输出到 dist/（gitignore 不入库）

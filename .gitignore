@@ -20,9 +20,9 @@ log/
 # 会话记忆运行时数据（FileChatSession 落盘目录，临时数据不提交）
 temp/
 
-# 前端依赖与构建产物（agent-example/frontend，前后端分离：后端为纯 API，产物不入库）
+# 前端依赖与构建产物（根目录 frontend/ 统一前端，前后端分离：后端为纯 API，产物不入库）
 node_modules/
-agent-example/frontend/dist/
+frontend/dist/
 npm-install.log
 
 # 操作系统

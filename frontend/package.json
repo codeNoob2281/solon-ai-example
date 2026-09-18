@@ -1,9 +1,9 @@
 {
-  "name": "agent-example-frontend",
+  "name": "solon-ai-example-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Solon AI Agent 流式对话前端（React 19 + @ai-sdk/react），构建产物输出到 Spring Boot 静态资源目录",
+  "description": "Solon AI Example 统一前端（React 19 + @ai-sdk/react + Vite，项目根目录）：前后端分离，构建产物输出 dist（gitignore），页面走 Vite dev server（/api 代理）或静态部署",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

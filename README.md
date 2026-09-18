@@ -23,6 +23,7 @@ solon-ai-example/
 ├── pom.xml                         # 父 POM（聚合模块）
 ├── .env                            # 环境变量（项目根目录，不提交）
 ├── .env.example                    # 环境变量模板（提交）
+├── frontend/                       # 统一前端（React 19 + Vite，项目根目录：npm run dev 5173（/api 代理）/ npm run build 产物 dist，前后端分离）
 ├── llm-core/                       # Starter：Solon AI 自动装配
 │   ├── pom.xml
 │   └── src/main/
