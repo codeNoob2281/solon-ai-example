@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- 多模块聚合：llm-core / llm-chat-example / rag-example / agent-example -->
+    <!-- 多模块聚合：llm-core / llm-chat-example / rag-example / agent-example / ai-starter -->
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -25,6 +25,8 @@
         <module>llm-chat-example</module>
         <module>rag-example</module>
         <module>agent-example</module>
+        <!-- 统一启动入口：引用三个示例模块，自动装配，唯一可执行 jar -->
+        <module>ai-starter</module>
     </modules>
 
     <properties>

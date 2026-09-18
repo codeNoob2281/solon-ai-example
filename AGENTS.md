@@ -34,13 +34,14 @@ feat: add rag-example traditional RAG example (document loading/chunking/Milvus 
 
 ```
 solon-ai-example/
-├── pom.xml                 # 父 POM（聚合：llm-core / llm-chat-example / rag-example）
+├── pom.xml                 # 父 POM（聚合：llm-core / llm-chat-example / rag-example / agent-example / ai-starter）
 ├── .env                    # 环境变量（项目根目录，gitignore，启动前由 EnvFileLoader 注入 System properties）
 ├── frontend/               # 统一前端（React19 + Vite，项目根目录：npm run dev 5173（/api 代理）/ npm run build 产物 dist（gitignore），前后端分离）
 ├── llm-core/               # Starter：Solon AI ChatModel 自动装配 + .env 加载器
-├── llm-chat-example/       # 对话示例应用
-├── rag-example/            # 传统 RAG 示例（父子分段：父块存 MySQL，子块存 Milvus）
-└── agent-example/          # Agent 示例应用（SimpleAgent 电商评论五维度情感分析 + ReActAgent 出行规划 + Web 演示页（左侧菜单切换）：AI SDK 协议流式对话 + 出行规划工作台（自定义过程事件协议 SSE：任务列表/思考链/工具调用/Markdown 回答可视化）；页面由根目录统一前端 frontend/ 承载）
+├── llm-chat-example/       # 对话示例模块（纯库 jar：独立启动仅限 IDE main()，打包启动走 ai-starter）
+├── rag-example/            # 传统 RAG 示例模块（父子分段：父块存 MySQL，子块存 Milvus；纯库 jar）
+├── agent-example/          # Agent 示例模块（SimpleAgent 电商评论五维度情感分析 + ReActAgent 出行规划 + Web 演示页（左侧菜单切换）：AI SDK 协议流式对话 + 出行规划工作台（自定义过程事件协议 SSE：任务列表/思考链/工具调用/Markdown 回答可视化）；页面由根目录统一前端 frontend/ 承载；纯库 jar）
+└── ai-starter/             # 统一启动入口（唯一可执行 jar）：引用三个示例模块自动装配，mvn clean install 后 java -jar ai-starter/target/ai-starter.jar
 ```
 
 ## 关键约定
@@ -52,3 +53,4 @@ solon-ai-example/
 5. **RAG 技术栈（父子分段）**：Solon AI 4.0.6（`solon-ai` 聚合包 + `io.milvus:milvus-sdk-java` 2.6.3 + `solon-ai-load-markdown` / `solon-ai-load-html`；不再使用 `solon-ai-repo-milvus`——其 Collection 结构固定，无法扩展独立字段）。数据分布：父块存 MySQL（MyBatis-Plus，`kb_document` / `kb_chunk`），子块存 Milvus（自建 `MilvusChildRepository`，`parent_id` 独立标量字段 + TRIE 索引）；检索按「相似度阈值 + limit」取子块 → 子块映射父块 → 父块内容进 LLM 上下文（该实现抽离为可配置策略接口 `RagRetrievalStrategy`，`com.example.ai.rag.retrieval` 包，默认 `parent-child`，经 `ai.rag.search.strategy` 选择；内置实现 `parent-child`、`mysql-fulltext`（后者为 MySQL ngram 全文检索父块，相关度分值 SQL 内 ROUND 保留 4 位，仅命中 INGESTED 文档）与 `hybrid-rrf`（向量 + 关键词 RRF 加权融合，RRF_K=60，权重 `ai.rag.search.vector-weight`/`keyword-weight` 默认 0.6/0.4，候选倍数 `candidate-multiplier` 默认 3，单端故障降级）；问答复用 `llm-core` 的 `ChatModel`。
 6. **参考文档**：《rag - RAG 相关概念》https://solon.noear.org/article/932 、《solon-ai-repo-milvus》https://solon.noear.org/article/941 。
 7. **父子分段已知取舍**：MySQL↔Milvus 双写无跨库原子性（Milvus 失败时文档行保留 status=FAILED）；同一文档重复入库会以新 id 累积（无按文档删除）；MySQL 表结构以 `rag-example/src/main/resources/sql/knowledge_base.sql` 为准，改动 DDL 须同步 `KnowledgeBaseStore` 内的建表语句；`kb_chunk` 全文索引（ngram）由 `mysql-fulltext` 策略首次使用时懒建（`ensureFulltextIndex`，需 MySQL 5.7.6+，默认 parent-child 策略不依赖该索引）。
+8. **统一启动入口 ai-starter**：三个示例模块（llm-chat-example / rag-example / agent-example）为纯库 jar（POM 不配 spring-boot-maven-plugin，独立启动仅限 IDE 运行 main()），其 Bean 经各自 `XxxExampleAutoConfiguration`（`META-INF/spring.factories` 注册，机制同 llm-core）自动装配进 `ai-starter`（自动配置类以 `@ComponentScan` 模块自身包路径并排除本模块 Application 类与 `OpenApiConfig`；三处同名 `@Bean openAPI()` 会冲突，合并启动由 ai-starter 的 `OpenApiConfig` 统一提供）。`@MapperScan("com.example.ai.rag.mapper")` 由 `RagExampleAutoConfiguration` 携带（独立启动时与 RagExampleApplication 上的声明重复注册，Spring 按同类去重）。合并版 application.yml 在 ai-starter（fat jar 内 BOOT-INF/classes 优先于依赖 jar，模块各自 yml 仅独立启动时生效）；新增 `${KEY}` 占位符仍按约定 2 登记 `.env` / `.env.example`。

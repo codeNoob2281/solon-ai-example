@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.example</groupId>
+        <artifactId>solon-ai-example</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>ai-starter</artifactId>
+    <name>AI Starter (Unified Entry)</name>
+    <description>Unified Spring Boot entry: aggregates llm-chat-example / rag-example / agent-example via spring.factories auto-configuration, the only runnable jar</description>
+
+    <dependencies>
+        <!--
+          三个示例模块：classpath 引入即自动装配（各自 META-INF/spring.factories 注册
+          XxxExampleAutoConfiguration），llm-core（ChatModel / EnvFileLoader）随依赖传递
+        -->
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>llm-chat-example</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>rag-example</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>agent-example</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Spring Boot Web：合并后应用的运行容器（三个示例模块亦传递携带，显式声明以自明） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>ai-starter</finalName>
+        <plugins>
+            <!-- 唯一可执行 jar：repackage 后 java -jar ai-starter/target/ai-starter.jar -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

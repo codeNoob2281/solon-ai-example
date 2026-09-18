@@ -62,13 +62,5 @@
         </dependency>
     </dependencies>
 
-    <build>
-        <finalName>agent-example</finalName>
-        <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
+    <!-- 纯库模块：被 ai-starter 引用自动装配；独立启动仅限 IDE 运行 main()，不打包可执行 jar -->
 </project>
