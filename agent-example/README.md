@@ -59,11 +59,11 @@ Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web
 
 ## 页面访问（前后端分离）
 
-- **后端**（纯 API jar，端口取 `.env` 的 `SERVER_PORT`，application.yml 兜底默认 8082）：
+- **后端**（统一入口 `ai-starter`，端口取 `.env` 的 `SERVER_PORT`，application.yml 兜底默认 8080）：
   - 对话流式端点：`POST /api/agent/chat/stream`（AI SDK 协议，供 useChat 使用）
   - 出行规划流式端点：`POST /api/agent/travel/stream`（自定义过程事件协议）
   - 出行规划（一次性）：`POST /agent/travel/plan`（自然语言结果）
-  - Swagger：<http://localhost:8082/swagger-ui.html>
+  - Swagger：<http://localhost:8080/swagger-ui.html>
 - **前端**（页面一律在前端工程侧，后端不内嵌页面）：
   - 开发：`cd frontend && npm run dev` → <http://localhost:5173/>（`/api` 已代理到后端端口）
   - 部署：`npm run build` 产物在 `frontend/dist`（gitignore），交给任意静态服务器，
@@ -80,7 +80,8 @@ npm run dev            # 开发模式（5173 端口，/api 代理到 .env 的 SE
 npm run build          # 构建 → 产物输出到 dist/（gitignore 不入库）
 ```
 
-- `npm run dev` 需同时启动后端（`mvn spring-boot:run -pl agent-example` 或运行纯 API jar）；
+- `npm run dev` 需同时启动后端（根目录构建后 `java -jar ai-starter/target/ai-starter.jar`；
+  三个示例模块已转为纯库 jar，仅可 IDE 运行各自 main() 独立启动）；
 - 后端 jar 为纯 API（pom 无任何前端内嵌逻辑），页面不进 jar。
 
 ## 后端对话 Agent

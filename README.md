@@ -32,7 +32,7 @@ solon-ai-example/
 │       │   ├── ChatModelProperties.java          # @ConfigurationProperties
 │       │   └── EnvFileLoader.java                # .env 加载器
 │       └── resources/META-INF/spring.factories   # 自动装配注册
-├── llm-chat-example/                # 对话示例应用
+├── llm-chat-example/                  # 对话示例模块（纯库 jar：独立启动仅限 IDE main()，打包启动走 ai-starter）
 │   ├── pom.xml
 │   └── src/main/
 │       ├── java/com/example/ai/example/
@@ -41,7 +41,7 @@ solon-ai-example/
 │       │   ├── service/ChatService.java           # AI 对话服务（含流式 + 自定义智能体）
 │       │   └── dto/                               # 请求体
 │       └── resources/application.yml
-└── rag-example/                    # 传统 RAG 示例应用（父子分段：父块存 MySQL，子块存 Milvus）
+├── rag-example/                     # 传统 RAG 示例模块（父子分段：父块存 MySQL，子块存 Milvus；纯库 jar）
     ├── pom.xml
     └── src/main/
         ├── java/com/example/ai/rag/
@@ -77,11 +77,11 @@ solon-ai-example/
             ├── application.yml
             ├── sql/knowledge_base.sql             # MySQL 表结构（与懒建表语句一致）
             └── docs/                              # 示例知识文档（sample.md/txt/html）
-└── agent-example/                    # Agent 示例应用（SimpleAgent 评论情感分析）
+├── agent-example/                   # Agent 示例模块（SimpleAgent 评论情感分析；纯库 jar）
     ├── pom.xml
     └── src/main/
         ├── java/com/example/ai/agent/
-        │   ├── AgentExampleApplication.java          # 入口（启动前加载 .env）
+        │   ├── AgentExampleApplication.java          # 独立启动入口（IDE 运行；打包启动走 ai-starter）
         │   ├── config/
         │   │   ├── SentimentAgentConfig.java         # SimpleAgent Bean（角色/指令/输出 Schema/重试）
         │   │   ├── WeatherAgentConfig.java           # SimpleAgent Bean + FunctionTool（本地 mock 天气工具）
@@ -96,16 +96,23 @@ solon-ai-example/
         │   │   └── WeatherMockData.java              # 天气本地 Mock 数据源（确定性伪随机）
         │   └── dto/                                  # CommentInput / CommentSentimentResult / WeatherQueryInput / WeatherInfo
         └── resources/application.yml
+└── ai-starter/                        # 统一启动入口（唯一可执行 jar）：依赖三个示例模块自动装配，合并后只需启动它
+    ├── pom.xml
+    └── src/main/
+        ├── java/com/example/ai/starter/
+        │   ├── AiStarterApplication.java            # 唯一 main（启动前加载 .env；三模块 Bean 经 spring.factories 自动装配）
+        │   └── config/OpenApiConfig.java            # 合并版 Swagger 配置（替代三模块同名 OpenApiConfig，避免 openAPI bean 冲突）
+        └── resources/application.yml                # 三模块配置合并版（fat jar 内优先于各模块自带 yml 生效）
 ```
 
 ## 构建
 
 ```bash
-# 根目录构建（同时构建 llm-core 与 llm-chat-example）
+# 根目录全量构建（父 POM 聚合：llm-core / llm-chat-example / rag-example / agent-example / ai-starter）
 mvn clean install -DskipTests
 
-# 运行示例
-java -jar llm-chat-example/target/solon-ai-example.jar
+# 启动统一入口（合并对话 / RAG / Agent 全部接口，后端唯一可执行 jar）
+java -jar ai-starter/target/ai-starter.jar
 ```
 
 ## 配置
@@ -254,10 +261,14 @@ ChatModel agent = ChatModel.of("https://api.moark.com/v1/chat/completions")
   - `milvus-sdk-java` 2.6.3（自建子块仓库 `MilvusChildRepository`，`parent_id` 独立字段）
   - `mybatis-plus-boot-starter` 3.5.5 + `mysql-connector-j`（MySQL 文档表/父块表）
   - `solon-ai-load-markdown` + `solon-ai-load-html`（文档加载器）
-- `agent-example`（Agent 示例应用）:
+- `agent-example`（Agent 示例模块）:
   - `llm-core`
   - `spring-boot-starter-web`
   - `solon-ai-agent`（SimpleAgent 等；传递依赖 `solon-ai` 聚合包 + `solon-flow` + `solon-expression`）
+  - `solon-ai-ui-aisdk`（Agent 事件流 → AI SDK UI Message Stream Protocol SSE）
+- `ai-starter`（统一启动入口，唯一可执行 jar）:
+  - `llm-chat-example` + `rag-example` + `agent-example`（三个示例模块；Bean 经各自 `META-INF/spring.factories` 注册的 `XxxExampleAutoConfiguration` 自动装配，模块 Application 类与 `OpenApiConfig` 被排除）
+  - `spring-boot-starter-web`
 
 ---
 
@@ -296,36 +307,36 @@ ChatModel agent = ChatModel.of("https://api.moark.com/v1/chat/completions")
 ### 启动
 
 ```bash
-# 根目录构建（同时构建三个模块）
+# 根目录构建（全量构建五个模块）
 mvn clean install -DskipTests
 
-# 运行 RAG 示例（默认端口 8081）
-java -jar rag-example/target/rag-example.jar
+# 运行（统一入口 ai-starter；端口取根目录 .env 的 SERVER_PORT，默认 8080）
+java -jar ai-starter/target/ai-starter.jar
 ```
 
 ### API
 
 ```bash
 # 1. 原始文本入库（加载 → 父块存 MySQL → 子块存 Milvus）
-curl -X POST http://localhost:8081/rag/ingest/text \
+curl -X POST http://localhost:8080/rag/ingest/text \
   -H "Content-Type: application/json" \
   -d '{"text":"RAG 是检索增强生成的简称……","title":"RAG 概念"}'
 
 # 2. 服务器单文件入库（自动按扩展名选 Markdown/Html/Text 加载器）
-curl -X POST http://localhost:8081/rag/ingest/file \
+curl -X POST http://localhost:8080/rag/ingest/file \
   -H "Content-Type: application/json" \
   -d '{"path":"rag-example/src/main/resources/docs/sample.md"}'
 
 # 3. 目录批量入库（扫描 .md/.markdown/.html/.htm/.txt）
-curl -X POST http://localhost:8081/rag/ingest/directory \
+curl -X POST http://localhost:8080/rag/ingest/directory \
   -H "Content-Type: application/json" \
   -d '{"path":"rag-example/src/main/resources/docs"}'
 
 # 4. 子块向量检索（返回映射后的父块，验证入库效果）
-curl "http://localhost:8081/rag/search?q=什么是RAG&limit=4"
+curl "http://localhost:8080/rag/search?q=什么是RAG&limit=4"
 
 # 5. RAG 问答（检索增强生成）
-curl -X POST http://localhost:8081/rag/ask \
+curl -X POST http://localhost:8080/rag/ask \
   -H "Content-Type: application/json" \
   -d '{"question":"什么是 RAG？","limit":4}'
 ```
@@ -439,17 +450,17 @@ curl -X POST http://localhost:8081/rag/ask \
 - `CommentSentimentService`：评论 DTO 序列化为 JSON 作为用户提示词 → `agent.prompt(...).call()`
   → `SimpleResponse.toBean(CommentSentimentResult.class)` 解析结构化结果（自动截取 JSON 片段，
   容错 markdown 围栏）→ 情感标签归一化（非法/缺失值兜底 `UNKNOW`）。
-- 接口：`POST /agent/sentiment/analyze`，Swagger UI：http://localhost:8082/swagger-ui.html
-  （实际端口以 `.env` 的 `SERVER_PORT` 为准，默认 8082）。
+- 接口：`POST /agent/sentiment/analyze`，Swagger UI：http://localhost:8080/swagger-ui.html
+  （实际端口以 `.env` 的 `SERVER_PORT` 为准，默认 8080）。
 
 ### 使用示例
 
 ```bash
-# 构建后运行（根目录 .env 注入配置）
-java -jar agent-example/target/agent-example.jar
+# 构建后运行（统一入口 ai-starter，根目录 .env 注入配置）
+java -jar ai-starter/target/ai-starter.jar
 
 # 五维度情感分析
-curl -X POST http://localhost:8082/agent/sentiment/analyze \
+curl -X POST http://localhost:8080/agent/sentiment/analyze \
   -H "Content-Type: application/json" \
   -d '{"commentId":"c20260912001","content":"手机外观很漂亮，电池不太耐用，这个价格还算划算。"}'
 ```
@@ -478,7 +489,7 @@ curl -X POST http://localhost:8082/agent/sentiment/analyze \
 > 与工具调用同开时部分 OpenAI 兼容服务会拒绝），改为指令约束 + `toBean` 容错解析。
 
 ```bash
-curl -X POST http://localhost:8082/agent/weather/query \
+curl -X POST http://localhost:8080/agent/weather/query \
   -H "Content-Type: application/json" \
   -d '{"city":"北京","date":"2026-09-14"}'
 ```
