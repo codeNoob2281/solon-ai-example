@@ -76,6 +76,29 @@
   --primary: #4f6ef7;
   --primary-dark: #3d57d6;
   --radius: 14px;
+
+  /*
+   * AI Elements（shadcn）令牌的根级兜底：Dialog / DropdownMenu 等 Radix 组件
+   * 经 portal 挂到 body，不在任何 .ai-theme 容器内（如知识库管理页），
+   * bg-background / bg-popover 等工具类需要在这里解析，否则背景透明。
+   * 取值与 .ai-theme 保持一致，容器内由同名定义覆盖，行为不变。
+   */
+  --background: #ffffff;
+  --foreground: #1f2430;
+  --card-foreground: #1f2430;
+  --popover: #ffffff;
+  --popover-foreground: #1f2430;
+  --primary-foreground: #ffffff;
+  --secondary: #f0f2f8;
+  --secondary-foreground: #1f2430;
+  --muted-foreground: #7a8299;
+  --accent: #eef1fb;
+  --accent-foreground: #1f2430;
+  --destructive: #c0392b;
+  --destructive-foreground: #ffffff;
+  --input: #e5e9f2;
+  --ring: #4f6ef7;
+  --sidebar: #f7f8fc;
 }
 
 * {
@@ -501,4 +524,173 @@ body {
 
 [data-streamdown="table-wrapper"] div.absolute > button {
   white-space: nowrap;
+}
+
+/* ==================== 侧栏菜单分组 ==================== */
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.nav-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 6px 10px 4px;
+  letter-spacing: 0.04em;
+}
+
+/* ==================== RAG 问答：引用来源 ==================== */
+
+.rag-sources {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.rag-sources-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin-bottom: 6px;
+}
+
+.rag-source-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 纯展示 chip：非 <a>、不可点击，title 作原生 tooltip */
+.rag-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 280px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f0f2f8;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+/* ==================== 知识库管理页 ==================== */
+
+.kb {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  /* 宽屏适当拉宽（1080 → 1440），窄屏仍由 100% 自适应 */
+  max-width: 1440px;
+  margin: 0 auto;
+  /* 底部 40px：分页栏与页面下边缘保持的距离 */
+  padding: 0 20px 40px;
+}
+
+/* 汇总统计条：4 个 stat 卡 */
+.kb-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+/* 文档块预览弹窗 */
+.kb-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.kb-preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.kb-chunk-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--card);
+}
+
+.kb-chunk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kb-chunk-index {
+  flex: none;
+  background: #e8f0fe;
+  color: #2f5fd0;
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.kb-chunk-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-chunk-chars {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 块内容原样呈现（pre-wrap，不做 Markdown 渲染，利于核对切分效果） */
+.kb-chunk-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.65;
+  background: transparent;
+  padding: 0;
+}
+
+/* 新增文档弹窗（表单字段排布） */
+.kb-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kb-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kb-field-label {
+  font-size: 12px;
+  color: var(--muted);
 }

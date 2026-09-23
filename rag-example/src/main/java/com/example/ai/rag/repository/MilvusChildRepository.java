@@ -30,9 +30,11 @@ import org.noear.solon.ai.rag.util.SimilarityUtil;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -69,6 +71,11 @@ public class MilvusChildRepository implements RepositoryStorable, RepositoryLife
     public static final String FIELD_EMBEDDING = "embedding";
     public static final String FIELD_CONTENT = "content";
     public static final String FIELD_METADATA = "metadata";
+
+    /**
+     * 按 parent_id 批量删除时的分片大小（防过滤表达式过长）
+     */
+    private static final int DELETE_BATCH_SIZE = 200;
 
     private final Gson gson = new Gson();
     private final EmbeddingModel embeddingModel;
@@ -255,6 +262,75 @@ public class MilvusChildRepository implements RepositoryStorable, RepositoryLife
                 .collectionName(collectionName)
                 .ids(Arrays.asList(ids))
                 .build());
+    }
+
+    /**
+     * 按父块 id 批量删除其全部子块（重建索引 / 删除文档用）。
+     * <p>
+     * 走 {@code parent_id in ["id1","id2",…]} 标量过滤（parent_id 有 TRIE 索引），
+     * 按每批 ≤ {@value #DELETE_BATCH_SIZE} 个 id 分片多次 delete，防过滤表达式过长；
+     * 空集合直接返回。
+     *
+     * @param parentIds 父块 id 集合（kb_chunk.id）
+     */
+    public void deleteByParentIds(Collection<String> parentIds) {
+        if (parentIds == null || parentIds.isEmpty()) {
+            return;
+        }
+        List<String> ids = parentIds.stream()
+                .filter(id -> id != null && !id.trim().isEmpty())
+                .collect(Collectors.toList());
+        if (ids.isEmpty()) {
+            return;
+        }
+
+        for (List<String> batch : ListUtil.partition(ids, DELETE_BATCH_SIZE)) {
+            String filter = "parent_id in [" + batch.stream()
+                    .map(MilvusChildRepository::quoteFilterValue)
+                    .collect(Collectors.joining(",")) + "]";
+            client.delete(DeleteReq.builder()
+                    .collectionName(collectionName)
+                    .filter(filter)
+                    .build());
+        }
+    }
+
+    /**
+     * 读取集合的向量维度（FloatVector 字段的 dimension）。
+     * <p>
+     * 集合不存在返回 {@link OptionalInt#empty()}；调用方（汇总接口）以
+     * {@code EmbeddingModel.dimensions()} 回落——该方法每次调用都发起真实嵌入请求，
+     * 因此优先从集合 schema 读取（零嵌入成本）。
+     */
+    public OptionalInt getVectorDimension() {
+        boolean exists = client.hasCollection(HasCollectionReq.builder()
+                .collectionName(collectionName)
+                .build());
+        if (!exists) {
+            return OptionalInt.empty();
+        }
+
+        DescribeCollectionResp describe = client.describeCollection(DescribeCollectionReq.builder()
+                .collectionName(collectionName)
+                .build());
+        CreateCollectionReq.CollectionSchema schema = describe.getCollectionSchema();
+        if (schema == null || schema.getFieldSchemaList() == null) {
+            return OptionalInt.empty();
+        }
+        for (CreateCollectionReq.FieldSchema field : schema.getFieldSchemaList()) {
+            if (field.getDataType() == DataType.FloatVector && field.getDimension() != null) {
+                return OptionalInt.of(field.getDimension());
+            }
+        }
+        return OptionalInt.empty();
+    }
+
+    /**
+     * 过滤表达式字符串值转义（id 为内部生成的 UUID hex，正常不含特殊字符，防御性转义）
+     */
+    private static String quoteFilterValue(String value) {
+        String escaped = value.replace("\\", "\\\\").replace("\"", "\\\"");
+        return "\"" + escaped + "\"";
     }
 
     @Override

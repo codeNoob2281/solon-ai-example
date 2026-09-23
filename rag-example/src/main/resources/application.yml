@@ -5,6 +5,12 @@ spring:
   application:
     name: rag-example
 
+  # 文件上传上限（知识库管理「上传文件」入口；服务端另有 5MB 白名单校验，此处留余量）
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
   # MySQL 数据源：知识库文档表（kb_document）+ 父块表（kb_chunk），MyBatis-Plus 持久层
   # URL 默认带 createDatabaseIfNotExist=true：库不存在自动创建；
   # Hikari 懒连接 + 未启用 sql.init：应用启动不要求 MySQL 在线，

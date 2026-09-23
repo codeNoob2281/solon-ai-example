@@ -50,9 +50,13 @@ solon-ai-example/
         │   │   ├── RagProperties.java             # @ConfigurationProperties(ai.rag.*)
         │   │   ├── RagConfig.java                 # EmbeddingModel/MilvusClientV2/子块仓库/父-子分割器 Bean
         │   │   ├── RetryableEmbeddingModel.java   # 嵌入重试装饰器
+        │   │   ├── MybatisPlusConfig.java         # MyBatis-Plus 分页插件（文档分页列表依赖）
         │   │   └── OpenApiConfig.java             # Swagger 配置
+        │   ├── loader/
+        │   │   ├── MarkdownLoader.java            # Markdown 章节切分（上下文继承，标题路径前缀）
+        │   │   └── MarkdownTitleExtractor.java    # 文档内一级标题提取（行级扫描简化实现）
         │   ├── repository/
-        │   │   └── MilvusChildRepository.java     # 子块向量仓库（自建集合：parent_id 独立字段）
+        │   │   └── MilvusChildRepository.java     # 子块向量仓库（自建集合：parent_id 独立字段；按 parent_id 删除/读向量维度）
         │   ├── entity/
         │   │   ├── KbDocument.java                # 文档表 kb_document
         │   │   ├── KbChunk.java                   # 父块表 kb_chunk
@@ -69,9 +73,16 @@ solon-ai-example/
         │   ├── storage/
         │   │   └── KnowledgeBaseStore.java        # MySQL 存取 + 懒建表
         │   ├── service/
-        │   │   ├── RagIngestionService.java       # 文档加载 + 父/子分段 + MySQL/Milvus 入库
-        │   │   └── RagSearchService.java          # 检索编排（策略可配置）→ RAG 问答
-        │   ├── controller/RagController.java      # POST /rag/ingest/* + GET /rag/search + POST /rag/ask
+        │   │   ├── RagIngestionService.java       # 入库流水线：SourceDocument → 章节切分 → 父/子分段 → MySQL/Milvus
+        │   │   ├── RagSearchService.java          # 检索编排（策略可配置）→ RAG 同步问答
+        │   │   ├── RagChatService.java            # RAG 流式问答编排（检索 → 来源解析 → ChatModel 事件流）
+        │   │   ├── RagPromptFactory.java          # 提示词工厂（系统提示词/用户模版/知识渲染，同步与流式共用）
+        │   │   ├── KnowledgeBaseService.java      # 知识库管理编排（汇总/分页/预览/重建/删除/新增 + 文档级锁）
+        │   │   └── SourceDocument.java            # 入库源文档（一个文件/一次粘贴/一个 URL = 一条文档记录）
+        │   ├── controller/
+        │   │   ├── RagController.java             # 调试接口：POST /rag/ingest/* + GET /rag/search + POST /rag/ask
+        │   │   ├── RagChatController.java         # 流式问答：POST /api/rag/chat/stream（AI SDK 协议 SSE，metadata 携带引用来源）
+        │   │   └── KnowledgeBaseController.java   # 知识库管理：GET/POST/DELETE /api/rag/kb/*
         │   └── dto/                               # 请求/响应体
         └── resources/
             ├── application.yml
@@ -340,12 +351,49 @@ curl "http://localhost:8080/rag/search?q=什么是RAG&limit=4"
 curl -X POST http://localhost:8080/rag/ask \
   -H "Content-Type: application/json" \
   -d '{"question":"什么是 RAG？","limit":4}'
+
+# 6. 知识库汇总（文档数 / 块数 / 总字符 / 向量维度）
+curl http://localhost:8080/api/rag/kb/summary
+
+# 7. 文档分页列表（标题/来源模糊 + 状态多选 + 分页 10/20/50/100，按更新时间倒序）
+curl "http://localhost:8080/api/rag/kb/documents?pageNum=1&pageSize=10&title=记账&status=INGESTED,FAILED"
+
+# 8. 文档块预览（父块按 chunk_index 升序全量返回，含子标题路径）
+curl http://localhost:8080/api/rag/kb/documents/{id}/chunks
+
+# 9. 重建索引（依据 kb_document.content 重新章节切分 + 父块 token 切分 + 子块向量化）
+curl -X POST http://localhost:8080/api/rag/kb/documents/{id}/reindex
+
+# 10. 删除文档（MySQL 两表同事务删除；Milvus 子块尽力而为）
+curl -X DELETE http://localhost:8080/api/rag/kb/documents/{id}
+
+# 11. 上传文件新增（.md/.markdown/.txt/.html/.htm，≤5MB；一个文件 = 一条文档记录）
+curl -X POST http://localhost:8080/api/rag/kb/documents/upload -F "file=@产品手册.md" -F "title=可选标题"
+
+# 12. 粘贴内容新增（format 限 markdown/text，默认 markdown）
+curl -X POST http://localhost:8080/api/rag/kb/documents/paste \
+  -H "Content-Type: application/json" \
+  -d '{"title":"可选标题","format":"markdown","content":"# 标题\n正文…"}'
+
+# 13. RAG 流式问答（AI SDK UI Message Stream Protocol v1 SSE；
+#     start → metadata(sources=引用来源) → reasoning/text 增量 → finish → [DONE]，
+#     供前端 useChat 对接，页面见统一前端「RAG 知识库」菜单组）
+curl -N -X POST http://localhost:8080/api/rag/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"id":"demo","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"什么是 RAG？"}]}]}'
 ```
+
+> **接口前缀**：`/rag/*` 为保留的调试接口（curl / Swagger 调试用）；`/api/rag/*` 为
+> 统一前端 vite 代理（`/api` → 后端端口）使用的正式接口。入库语义统一为
+> **「一个文件 / 一次粘贴 / 一个 URL = 一条文档记录」**：md 先按标题章节切分再逐章节
+> 父块切分（`kb_chunk.title` 为章节标题路径），文档行持有原始全文（`kb_document.content`，
+> 重建索引依据）与文档格式（`kb_document.doc_type`：markdown/html/text）。
 
 ### 入库流程说明（父子分段）
 
-1. **文档加载**：`RagIngestionService` 按扩展名选择 `MarkdownLoader` / `HtmlSimpleLoader` / `TextLoader`，并附加 `source` / `filename` / `title` 等元数据
-2. **父块切分**：`parentSplitter`（`TokenSizeTextSplitter`，默认 1000 token）把文档切为大粒度父块，存 MySQL `kb_chunk`（含文档 id、区块 id、序号、内容、子块数）；文档信息存 `kb_document`（状态 INGESTING）
+1. **装配 SourceDocument**：一个文件 / 一次粘贴 / 一个 URL = 一个源文档（原始全文 + 解析标题 + 来源 + 文档格式），文档标题按「用户填写 → 文档内一级标题（`MarkdownTitleExtractor`）→ 文件名/兜底"未命名文档"」解析
+2. **章节切分（sectionize）**：markdown 经 `MarkdownLoader` 上下文继承算法逐标题章节（内容自带 "### 路径" 前缀与 title_path 元数据）；text 单章节；html 经 `HtmlSimpleLoader` 转纯文本后单章节
+3. **父块切分**：`parentSplitter`（`TokenSizeTextSplitter`，默认 1000 token）**逐章节独立切分**（避免跨章节合并正文），`chunk_index` 在文档内全局连续编号；父块行（含章节标题路径 `kb_chunk.title`）存 MySQL `kb_chunk`，文档行（含原始全文、状态 INGESTING）存 `kb_document`，同一事务
 3. **子块切分**：每个父块再由 `childSplitter`（默认 200 token）切为小粒度子块，附加元数据 `document_id` / `parent_id` / `child_index`（子块继承文档元数据）
 4. **子块入库**：`MilvusChildRepository.save()` 按 `batchSize` 分批 → `EmbeddingModel.embed()` 批量向量化 → `Upsert` 写入 Milvus（`parent_id` 提升为集合独立标量字段；首次使用自动建集合 + TRIE/向量索引），每完成一批通过 `progressCallback` 打印进度日志
 5. **状态推进**：Milvus 写入成功 → 文档状态置 INGESTED；失败 → 尽力置 FAILED（MySQL 行保留待排查）
@@ -427,7 +475,11 @@ curl -X POST http://localhost:8080/rag/ask \
 > `MilvusChildRepository` Bean 标记为 `@Lazy`、MySQL 表首次使用时懒建：应用启动不要求 Milvus/MySQL 在线，
 > 首次调用 `/rag/ingest/*` 或 `/rag/search` 时才建连/建集合/建表。
 >
-> **已知取舍**：MySQL↔Milvus 双写无跨库原子性；同一文档重复入库会以新 id 累积（文档删除/重建接口未实现）。
+> **已知取舍**：MySQL↔Milvus 双写无跨库原子性（重建/删除遵循同语义，删除时 Milvus 子块尽力而为、
+> 失败仅告警不阻断，孤儿子块被检索映射的"父块缺失跳过"逻辑兜底）；同一文档重复上传不做去重拦截
+> （产生不同 id 的多条记录，可在知识库管理页删除）。存量旧结构数据（一文件多记录、缺 content 列）
+> 人工清理：推荐 `DROP TABLE kb_chunk, kb_document;` 后由应用懒建新表，或手工
+> `ALTER TABLE ... ADD COLUMN`（见 `docs/rag-module-design.md` §4.2）。
 
 ---
 

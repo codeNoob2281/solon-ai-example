@@ -9,6 +9,9 @@
 --     --子块切分--> 子块（Milvus 集合，独立字段 parent_id = kb_chunk.id）
 --   检索（默认策略 parent-child）：Milvus 检索子块（相似度阈值 + limit）→ 子块映射父块 → 父块内容进 LLM 上下文
 --   检索（可选策略 mysql-fulltext）：MySQL FULLTEXT 全文检索父块（关键词，见文末索引）
+-- 表语义：一个文件 / 一次粘贴 / 一个 URL = 一行 kb_document；
+--   kb_document.content 保存原始全文（重建索引依据），doc_type 为文档格式（markdown/html/text）；
+--   kb_chunk.title 为所属章节的完整子标题路径（" / " 连接，来自 Markdown 切分；txt/html 为 NULL）
 -- =====================================================================
 
 CREATE TABLE IF NOT EXISTS kb_document (
@@ -16,6 +19,8 @@ CREATE TABLE IF NOT EXISTS kb_document (
   title         VARCHAR(512)  NULL COMMENT '标题',
   source        VARCHAR(1024) NULL COMMENT '来源（文件绝对路径 / URL，文本入库为空）',
   content_type  VARCHAR(32)   NOT NULL DEFAULT 'text' COMMENT '来源类型 text/file/url',
+  doc_type      VARCHAR(16)   NULL COMMENT '文档格式：markdown/html/text',
+  content       MEDIUMTEXT    NULL COMMENT '原始全文（重建索引依据；粘贴入库也存此列）',
   content_chars INT           NOT NULL DEFAULT 0 COMMENT '原始内容字符数',
   chunk_count   INT           NOT NULL DEFAULT 0 COMMENT '父块数量',
   status        VARCHAR(16)   NOT NULL DEFAULT 'INGESTING' COMMENT 'INGESTING/INGESTED/FAILED',
@@ -28,6 +33,7 @@ CREATE TABLE IF NOT EXISTS kb_chunk (
   id          VARCHAR(32) NOT NULL COMMENT '区块唯一标识（父块 UUID hex）',
   document_id VARCHAR(32) NOT NULL COMMENT '所属文档 id（kb_document.id）',
   chunk_index INT         NOT NULL DEFAULT 0 COMMENT '父块在文档内的序号',
+  title       VARCHAR(512) NULL COMMENT '子标题路径（所属章节完整标题路径，" / " 连接）',
   content     MEDIUMTEXT  NOT NULL COMMENT '父块内容（供 LLM 上下文）',
   char_count  INT         NOT NULL DEFAULT 0 COMMENT '父块字符数',
   child_count INT         NOT NULL DEFAULT 0 COMMENT '子块数量（存 Milvus）',

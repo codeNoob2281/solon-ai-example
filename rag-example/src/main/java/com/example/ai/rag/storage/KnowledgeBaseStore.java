@@ -6,6 +6,7 @@ import com.example.ai.rag.entity.KbDocument;
 import com.example.ai.rag.mapper.KbChunkMapper;
 import com.example.ai.rag.mapper.KbDocumentMapper;
 import lombok.extern.slf4j.Slf4j;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +51,8 @@ public class KnowledgeBaseStore {
             + "  title         VARCHAR(512)  NULL COMMENT '标题',\n"
             + "  source        VARCHAR(1024) NULL COMMENT '来源（文件绝对路径 / URL，文本入库为空）',\n"
             + "  content_type  VARCHAR(32)   NOT NULL DEFAULT 'text' COMMENT '来源类型 text/file/url',\n"
+            + "  doc_type      VARCHAR(16)   NULL COMMENT '文档格式：markdown/html/text',\n"
+            + "  content       MEDIUMTEXT    NULL COMMENT '原始全文（重建索引依据；粘贴入库也存此列）',\n"
             + "  content_chars INT           NOT NULL DEFAULT 0 COMMENT '原始内容字符数',\n"
             + "  chunk_count   INT           NOT NULL DEFAULT 0 COMMENT '父块数量',\n"
             + "  status        VARCHAR(16)   NOT NULL DEFAULT 'INGESTING' COMMENT 'INGESTING/INGESTED/FAILED',\n"
@@ -62,6 +65,7 @@ public class KnowledgeBaseStore {
             + "  id          VARCHAR(32) NOT NULL COMMENT '区块唯一标识（父块 UUID hex）',\n"
             + "  document_id VARCHAR(32) NOT NULL COMMENT '所属文档 id（kb_document.id）',\n"
             + "  chunk_index INT         NOT NULL DEFAULT 0 COMMENT '父块在文档内的序号',\n"
+            + "  title       VARCHAR(512) NULL COMMENT '子标题路径（所属章节完整标题路径，\" / \" 连接）',\n"
             + "  content     MEDIUMTEXT  NOT NULL COMMENT '父块内容（供 LLM 上下文）',\n"
             + "  char_count  INT         NOT NULL DEFAULT 0 COMMENT '父块字符数',\n"
             + "  child_count INT         NOT NULL DEFAULT 0 COMMENT '子块数量（存 Milvus）',\n"
@@ -171,6 +175,13 @@ public class KnowledgeBaseStore {
         }
     }
 
+    /**
+     * 标记文档进入入库/重建中状态（重建索引流程开始时调用）
+     */
+    public void markIngesting(String documentId) {
+        updateStatus(documentId, STATUS_INGESTING);
+    }
+
     private void updateStatus(String documentId, String status) {
         ensureTables();
 
@@ -181,6 +192,104 @@ public class KnowledgeBaseStore {
         // updateById 仅更新非空字段
         documentMapper.updateById(update);
         log.info("[KB Store] document status -> {}: documentId={}", status, documentId);
+    }
+
+    /**
+     * 按文档 id 取文档行（管理侧：重建/删除前校验与读取原始全文）
+     */
+    public KbDocument findDocumentById(String documentId) {
+        ensureTables();
+        return documentMapper.selectById(documentId);
+    }
+
+    /**
+     * 按文档 id 批量取文档行（问答侧：检索命中 → 来源文档信息解析）
+     */
+    public List<KbDocument> findDocumentsByIds(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Collections.emptyList();
+        }
+        ensureTables();
+        return documentMapper.selectBatchIds(ids);
+    }
+
+    /**
+     * 取文档全部父块 id（重建/删除前用于按 parent_id 批量删除 Milvus 子块）
+     */
+    public List<String> findChunkIdsByDocumentId(String documentId) {
+        ensureTables();
+        return chunkMapper.selectList(new LambdaQueryWrapper<KbChunk>()
+                        .select(KbChunk::getId)
+                        .eq(KbChunk::getDocumentId, documentId))
+                .stream()
+                .map(KbChunk::getId)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * 替换文档父块行（重建索引核心步骤，同一事务）：
+     * 删除该文档全部旧父块 → 插入新父块行 → 更新文档 chunk_count。
+     * <p>
+     * 父块行 id 使用新生成的 UUID（旧 id 已用于删除 Milvus 子块后废弃）。
+     */
+    @Transactional
+    public void replaceChunks(String documentId, List<KbChunk> newChunks, int chunkCount) {
+        ensureTables();
+
+        chunkMapper.delete(new LambdaQueryWrapper<KbChunk>().eq(KbChunk::getDocumentId, documentId));
+        if (newChunks != null) {
+            for (KbChunk chunk : newChunks) {
+                chunkMapper.insert(chunk);
+            }
+        }
+
+        KbDocument update = new KbDocument();
+        update.setId(documentId);
+        update.setChunkCount(chunkCount);
+        update.setUpdatedAt(LocalDateTime.now());
+        documentMapper.updateById(update);
+        log.info("[KB Store] chunks replaced: documentId={}, chunkCount={}", documentId, chunkCount);
+    }
+
+    /**
+     * 删除文档（同一事务）：先删父块行再删文档行。
+     * Milvus 子块的删除由调用方在此之前尽力而为完成（无跨库原子性）。
+     */
+    @Transactional
+    public void deleteByDocumentId(String documentId) {
+        ensureTables();
+
+        chunkMapper.delete(new LambdaQueryWrapper<KbChunk>().eq(KbChunk::getDocumentId, documentId));
+        documentMapper.deleteById(documentId);
+        log.info("[KB Store] document deleted: documentId={}", documentId);
+    }
+
+    /**
+     * 汇总统计：文档数
+     */
+    public long countDocuments() {
+        ensureTables();
+        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM kb_document", Long.class);
+        return count == null ? 0L : count;
+    }
+
+    /**
+     * 汇总统计：父块数
+     */
+    public long countChunks() {
+        ensureTables();
+        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM kb_chunk", Long.class);
+        return count == null ? 0L : count;
+    }
+
+    /**
+     * 汇总统计：文档原始全文总字符数（content_chars 之和，空表回 0）
+     */
+    public long sumContentChars() {
+        ensureTables();
+        Long sum = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(content_chars), 0) FROM kb_document", Long.class);
+        return sum == null ? 0L : sum;
     }
 
     /**

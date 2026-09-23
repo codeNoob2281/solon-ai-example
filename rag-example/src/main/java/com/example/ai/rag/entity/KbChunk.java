@@ -30,6 +30,9 @@ public class KbChunk {
     /** 父块在文档内的序号（0 开始，保持切分顺序） */
     private Integer chunkIndex;
 
+    /** 子标题路径（所属章节完整标题路径，" / " 连接；txt/html 或无标题文档为 NULL） */
+    private String title;
+
     /** 父块内容（检索命中后进入 LLM 上下文） */
     private String content;
 
