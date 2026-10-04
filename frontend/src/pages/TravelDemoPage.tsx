@@ -123,6 +123,17 @@ function finalizeTurn(turn: Turn): Turn {
 }
 
 /**
+ * 本轮是否已有可见回答文本。
+ *
+ * 模型常在正文之前先吐 "\n\n" 之类的纯空白增量（工具调用轮尤其常见），此时 answer 非空
+ * 但 Markdown 渲染不出任何内容，若按 `turn.answer` 判空就会留下一个只有背景与内边距的
+ * 空气泡，直到正文到达才被填充；这里按「去掉空白后是否有内容」判断。
+ */
+function hasVisibleAnswer(turn: Turn): boolean {
+  return turn.answer.trim().length > 0;
+}
+
+/**
  * 流式读取自定义 SSE：帧以空行分隔，载荷为 data:<json>（终帧 [DONE] 哨兵）。
  */
 async function streamTravel(
@@ -604,18 +615,18 @@ export default function TravelDemoPage() {
                   </MessageContent>
                 </Message>
                 {/* 一轮对话一个思考链折叠块（深度思考 + 工具调用），整轮结束后自动折叠；
-                    无步骤且尚无输出时以 Shimmer 作活动指示 */}
+                    无步骤且尚无可见输出时以 Shimmer 作活动指示 */}
                 {turn.steps.length > 0 ? (
                   <div className="trace">
                     <TurnChainView turn={turn} />
                   </div>
-                ) : turn.status === 'streaming' && !turn.answer ? (
+                ) : turn.status === 'streaming' && !hasVisibleAnswer(turn) ? (
                   <Shimmer className="text-sm" duration={1.5}>
                     Agent 工作中…
                   </Shimmer>
                 ) : null}
                 {turn.error ? <div className="error-bar">出错了：{turn.error}</div> : null}
-                {turn.answer ? (
+                {hasVisibleAnswer(turn) ? (
                   <Message from="assistant">
                     <MessageContent>
                       <MessageResponse className="md">{turn.answer}</MessageResponse>
