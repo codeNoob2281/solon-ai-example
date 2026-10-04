@@ -254,22 +254,24 @@ body {
   height: 100%;
 }
 
-.sidebar {
-  flex: none;
-  width: 232px;
-  display: flex;
-  flex-direction: column;
-  background: var(--card);
+/* antd Sider（浅色主题）：背景/边框跟随站点令牌，折叠后仅保留图标；
+   内部排布（flex 纵向 + 内边距）经 Sider 的 styles.body 内联下发，见 App.tsx */
+.app-sidebar {
   border-right: 1px solid var(--border);
-  padding: 18px 12px;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 6px 16px;
+  padding: 0 6px 14px;
   border-bottom: 1px solid var(--border);
+}
+
+/* 折叠态（64px）下品牌只留 logo，居中显示 */
+.ant-layout-sider-collapsed .brand {
+  justify-content: center;
+  padding: 0 0 14px;
 }
 
 .brand-logo {
@@ -290,64 +292,73 @@ body {
   font-weight: 600;
 }
 
-.nav {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 14px;
+.app-menu {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
-.nav-item {
+/* 折叠态悬浮弹出的二级菜单：弹层经 portal 挂在 body 上，不能挂在 .app-sidebar 作用域内。
+   antd 在弹层（vertical）里把菜单项当块级行盒（display:block + line-height/height = 条目高度 +
+   overflow:hidden），两行文案会掉到图标下一行并被裁掉，只看得见图标；
+   这里改回和侧栏内一致的 flex 居中（选择器需压过 antd 的 .css-hash.ant-menu .ant-menu-item） */
+.app-menu-popup .ant-menu.ant-menu-vertical .ant-menu-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  border: none;
-  background: transparent;
-  border-radius: 12px;
-  padding: 10px 10px;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.15s;
 }
 
-.nav-item:hover {
-  background: #eef1fb;
-}
-
-.nav-item.active {
-  background: #e6ebfd;
-}
-
-.nav-icon {
-  flex: none;
-  font-size: 18px;
-}
-
-.nav-text {
+/* 两行菜单项（标题 + 描述）：行高自持，不继承 antd 菜单项的整行行高 */
+.sidebar-item-label {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
-.nav-title {
-  font-size: 14px;
+/* 不设 color：选中态由 antd 的 itemSelectedColor 从 li 继承下来 */
+.sidebar-item-title {
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.nav-desc {
+.sidebar-item-desc {
+  margin-top: 1px;
   font-size: 11px;
+  line-height: 1.35;
   color: var(--muted);
-  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-foot {
-  padding: 12px 6px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px 4px 0;
   font-size: 11px;
   color: var(--muted);
   border-top: 1px solid var(--border);
+}
+
+.sidebar-foot-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ant-layout-sider-collapsed .sidebar-foot {
+  justify-content: center;
+  padding: 8px 0 0;
 }
 
 .page-main {
@@ -524,23 +535,6 @@ body {
 
 [data-streamdown="table-wrapper"] div.absolute > button {
   white-space: nowrap;
-}
-
-/* ==================== 侧栏菜单分组 ==================== */
-
-.nav-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 10px;
-}
-
-.nav-group-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  padding: 6px 10px 4px;
-  letter-spacing: 0.04em;
 }
 
 /* ==================== RAG 问答：引用来源 ==================== */
