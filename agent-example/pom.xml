@@ -23,7 +23,7 @@
         </dependency>
 
         <!--
-          Solon AI Agent（SimpleAgent 等，4.1.0 @Preview API）
+          Solon AI Agent（SimpleAgent 等，4.1.1 @Preview API）
           传递依赖：solon-ai 聚合包（core + 各方言）、solon-flow、solon-expression
         -->
         <dependency>

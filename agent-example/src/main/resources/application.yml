@@ -13,6 +13,8 @@ ai:
       api-key: ${AI_API_KEY:sk-your-api-key}
       model: ${AI_MODEL:gpt-3.5-turbo}
       provider: openai
+      # 模型上下文窗口（tokens）：工作台用量面板的上下文占用率基准（也供框架上下文压缩拦截器参考）
+      context-length: ${AI_CHAT_CONTEXT_LENGTH:128000}
       logging-enabled: ${AI_CHAT_LOGGING_ENABLED:false}
 
 logging:

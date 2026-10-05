@@ -135,6 +135,7 @@ java -jar ai-starter/target/ai-starter.jar
 | `AI_API_URL` | `http://localhost:1234/v1` | OpenAI 兼容 API 地址（不要带 `/v1/chat/completions`） |
 | `AI_API_KEY` | `sk-your-api-key` | API Key |
 | `AI_MODEL` | `gpt-3.5-turbo` | 模型名称 |
+| `AI_CHAT_CONTEXT_LENGTH` | `128000` | 模型上下文窗口（tokens）：出行规划工作台用量面板的上下文占用率基准 |
 | `AI_CHAT_LOGGING_ENABLED` | `false` | 模型请求/响应日志开关（ChatModel 请求/响应 DEBUG 输出） |
 | `SERVER_PORT` | `8080` | 服务端口 |
 

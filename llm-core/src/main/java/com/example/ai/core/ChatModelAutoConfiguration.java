@@ -29,6 +29,8 @@ public class ChatModelAutoConfiguration {
         config.setApiKey(properties.getApiKey());
         config.setProvider(properties.getProvider());
         config.setModel(properties.getModel());
+        // 上下文窗口：用量面板的占用率基准（框架默认 0 = 未声明）
+        config.setContextLength(properties.getContextLength());
         ChatModel.Builder builder = ChatModel.of(config);
         if (properties.isLoggingEnabled()) {
             builder.defaultInterceptorAdd(new LoggingChatInterceptor());

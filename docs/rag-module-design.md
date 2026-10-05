@@ -46,7 +46,7 @@
 | 分块配置 | `RAG_PARENT_CHUNK_SIZE` 默认 1000 token | 无需变更（沿用父块 1000 / 子块 200；需求中"500 token"为示例值） |
 
 > 关键事实：`EmbeddingModel.dimensions()` 的实现是 `embed("test").length`（solon-ai-core），**每次调用都会发起一次真实嵌入请求**，不缓存——汇总接口的"向量维度"需做缓存或优先从 Milvus 集合 schema 读取。
-> 关键事实：solon-ai 4.1.0 `ChatModel.prompt(msg).systemPrompt(...).stream()` 返回 `Flux<ChatEvent>`（事件模型：THINKING_START/DELTA/END、TEXT_START/DELTA/END…），`solon-ai-ui-aisdk` 的 `AiSdkStreamWrapper.toAiSdkStream(Flux<ChatEvent>, metadata)` 可将其包装为 Vercel AI SDK UI Message Stream Protocol v1 SSE，**思考事件自动映射为 reasoning part**；`metadata` 参数在 start part 之后发送，可用于携带来源列表。
+> 关键事实：solon-ai 4.1.1 `ChatModel.prompt(msg).systemPrompt(...).stream()` 返回 `Flux<ChatEvent>`（事件模型：THINKING_START/DELTA/END、TEXT_START/DELTA/END…），`solon-ai-ui-aisdk` 的 `AiSdkStreamWrapper.toAiSdkStream(Flux<ChatEvent>, metadata)` 可将其包装为 Vercel AI SDK UI Message Stream Protocol v1 SSE，**思考事件自动映射为 reasoning part**；`metadata` 参数在 start part 之后发送，可用于携带来源列表。
 
 ### 2.2 前端现状（frontend/）
 

@@ -24,6 +24,18 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import {
+  Context,
+  ContextCacheUsage,
+  ContextContent,
+  ContextContentBody,
+  ContextContentFooter,
+  ContextContentHeader,
+  ContextInputUsage,
+  ContextOutputUsage,
+  ContextTrigger,
+} from '@/components/ai-elements/context';
+import type { LanguageModelUsage } from 'ai';
+import {
   ToolInput,
   ToolOutput,
 } from '@/components/ai-elements/tool';
@@ -54,7 +66,7 @@ import { cn } from '@/lib/utils';
  * 数据链路（自定义事件协议，与 AI SDK 协议的对话页并存对照）：
  *   fetch 流式读取（POST /api/agent/travel/stream）
  *   → agent-example TravelAgentStreamController（travelAgent + 自定义事件映射）
- *   → 自定义过程事件协议 SSE（plan / text_delta / tool_start / tool_end / finish…）
+ *   → 自定义过程事件协议 SSE（plan / text_delta / tool_start / tool_end / metrics / finish…）
  *
  * 组件映射：
  *   任务列表     → Task / TaskTrigger / TaskContent / TaskItem（对话区上方，可折叠）
@@ -65,6 +77,9 @@ import { cn } from '@/lib/utils';
  *   工具调用     → ChainOfThoughtStep(WrenchIcon) + ToolInput / ToolOutput（含于思考链块内）
  *   输入/回答    → PromptInput 系列与 Message / MessageContent / MessageResponse
  *                  （AI 文本输出不进思考链，实时流入消息块由 Streamdown 渲染 Markdown）
+ *   用量信息     → Context / ContextTrigger / ContextContent 系列（输入框下方：摘要行 +
+ *                  悬浮卡展示输入/输出 token、缓存命中率、上下文占用与本轮耗时；
+ *                  数据来自运行结束的 metrics 帧 = 框架 RunEndEvent.getMetrics()）
  *
  * 多轮会话：conversationId 随请求上报，后端按其维持 AgentSession（澄清追问续聊）。
  */
@@ -99,6 +114,25 @@ interface ToolStep {
 
 type Step = ThinkingStep | ToolStep;
 
+/**
+ * 本轮用量度量（后端 metrics 帧，取自框架 RunEndEvent.getMetrics()）：
+ * 一次运行的累计 token 用量 + 缓存命中率 + 上下文占用（末次推理输入 token / 模型上下文窗口）。
+ */
+interface TurnMetrics {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  /** 缓存命中率（%）：缓存读取输入 token / 输入 token，后端已保留两位小数 */
+  cacheRate: number;
+  durationMs: number;
+  /** 上下文占用 token（末次推理的输入 token） */
+  contextTokens: number;
+  /** 模型上下文窗口 token（后端配置 ai.chat.openai.context-length） */
+  contextLength: number;
+}
+
 interface Turn {
   id: number;
   userText: string;
@@ -106,6 +140,8 @@ interface Turn {
   plan: PlanState | null;
   steps: Step[];
   answer: string;
+  metrics: TurnMetrics | null;
+  turnCount?: number;
   error?: string;
 }
 
@@ -397,6 +433,110 @@ function TurnChainView({ turn }: { turn: Turn }) {
   );
 }
 
+// ------------------------------------------------------------
+// 用量信息（对话框下方，AI Elements Context 组件）
+
+const compactFormat = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+
+/** 紧凑格式化 token 数（12.4K / 1.2M），与 AI Elements Context 的展示口径一致 */
+function compactTokens(value: number): string {
+  return compactFormat.format(value);
+}
+
+/** 用量面板中的一行指标：左侧标签（弱化），右侧数值 + 可选补充说明 */
+function UsageRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span>
+        {value}
+        {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * 本轮用量条（固定在输入框下方）：
+ * 左侧一行摘要（输入 / 输出 / 缓存命中率），右侧为 AI Elements Context 触发器——
+ * 悬浮展开上下文占用（比例 + 进度条）、各分项 token 用量与本轮耗时。
+ */
+function UsageBar({ metrics }: { metrics: TurnMetrics }) {
+  // 上下文窗口缺省（配置为 0）时不渲染占用悬浮卡，避免占用率除零
+  const hasContext = metrics.contextLength > 0;
+  const contextPercent = hasContext ? (metrics.contextTokens / metrics.contextLength) * 100 : 0;
+
+  // AI Elements Context 的 usage 口径（ai 包 LanguageModelUsage）
+  const usage: LanguageModelUsage = {
+    inputTokens: metrics.promptTokens,
+    inputTokenDetails: {
+      noCacheTokens: Math.max(metrics.promptTokens - metrics.cacheReadInputTokens, 0),
+      cacheReadTokens: metrics.cacheReadInputTokens,
+      cacheWriteTokens: metrics.cacheCreationInputTokens,
+    },
+    outputTokens: metrics.completionTokens,
+    outputTokenDetails: {
+      textTokens: metrics.completionTokens,
+      reasoningTokens: 0,
+    },
+    totalTokens: metrics.totalTokens,
+  };
+
+  return (
+    <div className="usage-bar">
+      <span className="usage-summary">
+        本轮用量：输入 {compactTokens(metrics.promptTokens)} · 输出{' '}
+        {compactTokens(metrics.completionTokens)} · 缓存命中 {metrics.cacheRate.toFixed(1)}%
+      </span>
+      {hasContext ? (
+        <Context
+          usedTokens={metrics.contextTokens}
+          maxTokens={metrics.contextLength}
+          usage={usage}
+        >
+          <ContextTrigger className="usage-context-trigger" />
+          <ContextContent>
+            <ContextContentHeader />
+            <ContextContentBody className="space-y-1.5">
+              <ContextInputUsage>
+                <UsageRow
+                  label="输入"
+                  value={compactTokens(metrics.promptTokens)}
+                  hint={metrics.cacheReadInputTokens > 0
+                    ? `缓存读取 ${compactTokens(metrics.cacheReadInputTokens)}`
+                    : undefined}
+                />
+              </ContextInputUsage>
+              <ContextOutputUsage>
+                <UsageRow label="输出" value={compactTokens(metrics.completionTokens)} />
+              </ContextOutputUsage>
+              <ContextCacheUsage>
+                <UsageRow
+                  label="缓存"
+                  value={`命中率 ${metrics.cacheRate.toFixed(1)}%`}
+                  hint={compactTokens(metrics.cacheReadInputTokens)}
+                />
+              </ContextCacheUsage>
+              <UsageRow
+                label="上下文"
+                value={`${compactTokens(metrics.contextTokens)} / ${compactTokens(metrics.contextLength)}`}
+                hint={`占用 ${contextPercent.toFixed(1)}%`}
+              />
+            </ContextContentBody>
+            <ContextContentFooter>
+              <span className="text-muted-foreground">本轮耗时</span>
+              <span>{(metrics.durationMs / 1000).toFixed(1)} s</span>
+            </ContextContentFooter>
+          </ContextContent>
+        </Context>
+      ) : null}
+    </div>
+  );
+}
+
 export default function TravelDemoPage() {
   const [input, setInput] = useState('');
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -507,6 +647,23 @@ export default function TravelDemoPage() {
         applyToLast(turn => ({ ...turn, error: String(event.message ?? '未知错误') }));
         break;
       }
+      case 'metrics': {
+        // 运行结束的度量帧（token 用量 / 缓存命中率 / 上下文占用）
+        const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+        const metrics: TurnMetrics = {
+          promptTokens: num(event.promptTokens),
+          completionTokens: num(event.completionTokens),
+          totalTokens: num(event.totalTokens),
+          cacheReadInputTokens: num(event.cacheReadInputTokens),
+          cacheCreationInputTokens: num(event.cacheCreationInputTokens),
+          cacheRate: num(event.cacheRate),
+          durationMs: num(event.durationMs),
+          contextTokens: num(event.contextTokens),
+          contextLength: num(event.contextLength),
+        };
+        applyToLast(turn => ({ ...turn, metrics }));
+        break;
+      }
       case 'finish': {
         // 正常收尾：任务列表视为全部完成。原因：框架的 planIndex 只能由
         // update_plan_progress 推进（RunEnd 无自动完成逻辑），而最后一步的
@@ -526,8 +683,13 @@ export default function TravelDemoPage() {
         });
         break;
       }
+      case 'run_end': {
+        const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+        applyToLast(turn => ({ ...turn, turnCount: num(event.turnCount) }));
+        break;
+      }
       default:
-        // text_start / text_end / run_start / run_end / reason_start / reason_end /
+        // text_start / text_end / reason_start / reason_end /
         // action_start / action_end / start：边界帧不单独渲染，静默忽略
         break;
     }
@@ -551,6 +713,15 @@ export default function TravelDemoPage() {
     }
   }
 
+  // 最近一轮的用量度量（对话框下方用量条展示；本轮未结束前保留上一轮数据）
+  let latestMetrics: TurnMetrics | null = null;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].metrics) {
+      latestMetrics = turns[i].metrics;
+      break;
+    }
+  }
+
   const submit = (message: PromptInputMessage) => {
     const text = (message.text ?? '').trim();
     if (!text || busy) {
@@ -559,7 +730,15 @@ export default function TravelDemoPage() {
     setInput('');
     setTurns(prev => [
       ...prev,
-      { id: Date.now(), userText: text, status: 'streaming', plan: null, steps: [], answer: '' },
+      {
+        id: Date.now(),
+        userText: text,
+        status: 'streaming',
+        plan: null,
+        steps: [],
+        answer: '',
+        metrics: null,
+      },
     ]);
 
     const controller = new AbortController();
@@ -658,6 +837,23 @@ export default function TravelDemoPage() {
           className="absolute bottom-1 right-1"
         />
       </PromptInput>
+
+      {/* 执行统计：对话框下方左侧展示轮次 / 步骤 */}
+      {turns.length > 0 ? (
+        <div className="travel-status-bar">
+          <span>轮次：{turns.length}</span>
+          <span>
+            步骤：
+            {(() => {
+              const latest = turns[turns.length - 1];
+              return latest.turnCount ?? 0;
+            })()}
+          </span>
+        </div>
+      ) : null}
+
+      {/* 用量信息：对话框下方展示最近一轮的 token 用量与上下文占用 */}
+      {latestMetrics ? <UsageBar metrics={latestMetrics} /> : null}
     </div>
   );
 }

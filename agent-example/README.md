@@ -44,8 +44,8 @@ Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web
 ```
 前端 fetch 流式读取（POST /api/agent/travel/stream，body: {id, message}）
   → TravelAgentStreamController：travelAgent.prompt(message).session(session).stream()
-  → 逐 AgentEvent 映射为 JSON 事件帧（start/plan/text_delta/tool_start/tool_end/finish…）
-  → SSE（data:<json>，终帧 [DONE]）→ 前端渲染任务列表 / 思考链 / 工具调用 / 最终回答
+  → 逐 AgentEvent 映射为 JSON 事件帧（start/plan/text_delta/tool_start/tool_end/metrics/finish…）
+  → SSE（data:<json>，终帧 [DONE]）→ 前端渲染任务列表 / 思考链 / 工具调用 / 最终回答 / 用量信息
 ```
 
 事件帧契约详见 `TravelAgentStreamController` 类注释。要点：
@@ -55,7 +55,11 @@ Agent 示例应用。除原有 SimpleAgent / ReActAgent 示例外，新增 **Web
   无法支撑任务列表可视化；
 - SSE 管道与对话端点同源（SseEmitter + 自主订阅 + boundedElastic + 断开中断）；
 - 多轮澄清按请求体 `id` 维持独立会话存储（与对话 demo 互不共享）；
-- 前端 Markdown 渲染用 AI Elements `MessageResponse`（内置 Streamdown）。
+- 前端 Markdown 渲染用 AI Elements `MessageResponse`（内置 Streamdown）；
+- **用量信息**：运行结束（`RunEndEvent.getMetrics()`）出 `metrics` 帧，带本轮的输入/输出 token、
+  缓存读取 token 与命中率（`Metrics.getCacheRate()`）、耗时，以及上下文占用（末次推理输入 token）
+  与模型上下文窗口（`.env` 的 `AI_CHAT_CONTEXT_LENGTH`）；前端在输入框下方用 AI Elements
+  `Context` 组件展示（摘要行 + 悬浮卡的分项明细与占用进度）。
 
 ## 页面访问（前后端分离）
 

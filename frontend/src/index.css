@@ -400,6 +400,52 @@ body {
   margin: 8px 0 0;
 }
 
+/* 用量信息（对话框下方）：本轮 token 用量摘要 + 上下文占用（AI Elements Context 悬浮卡）
+   注意取 --muted-foreground（文字灰 #7a8299），--muted 是浅底令牌（#f0f2f8），当文字色会看不清 */
+.usage-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+/* 执行统计（对话框下方左侧）：轮次 / 步骤 */
+.travel-status-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+/* 上下文占用触发器（ContextTrigger 无 children 时把 className 透传给内部 Button）：
+   占用圆环用 currentColor 描边，须显式给灰色，否则继承到浅色令牌导致圆环看不见 */
+.usage-bar .usage-context-trigger {
+  height: 22px;
+  gap: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.usage-bar .usage-context-trigger:hover {
+  color: var(--text);
+}
+
+.usage-summary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* 每轮：用户消息 + 过程时间线 */
 .turn {
   display: flex;

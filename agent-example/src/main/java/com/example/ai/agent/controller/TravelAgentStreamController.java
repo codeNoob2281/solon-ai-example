@@ -3,6 +3,7 @@ package com.example.ai.agent.controller;
 import com.alibaba.fastjson2.JSON;
 import com.example.ai.agent.dto.TravelStreamRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.noear.solon.ai.AiUsage;
 import org.noear.solon.ai.agent.AgentEvent;
 import org.noear.solon.ai.agent.AgentSession;
 import org.noear.solon.ai.agent.react.RunEndEvent;
@@ -17,6 +18,8 @@ import org.noear.solon.ai.agent.react.task.ReasonStartEvent;
 import org.noear.solon.ai.agent.react.task.ToolCallEndEvent;
 import org.noear.solon.ai.agent.react.task.ToolCallStartEvent;
 import org.noear.solon.ai.agent.session.InMemoryAgentSession;
+import org.noear.solon.ai.agent.trace.Metrics;
+import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.chat.event.ChatEvent;
 import org.noear.solon.ai.chat.event.ChatEventType;
 import org.springframework.http.MediaType;
@@ -32,6 +35,7 @@ import reactor.core.scheduler.Schedulers;
 import javax.annotation.Resource;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,6 +68,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * {"type":"action_start"} / {"type":"action_end"}               工具执行阶段边界
  * {"type":"tool_start","callId":"..","toolName":"..","args":{..}}               工具开始调用
  * {"type":"tool_end","callId":"..","toolName":"..","output":"..","durationMs":..[,"error":".."]}
+ * {"type":"metrics","promptTokens":..,"completionTokens":..,"totalTokens":..,
+ *  "cacheReadInputTokens":..,"cacheCreationInputTokens":..,"cacheRate":..,"durationMs":..,
+ *  "contextTokens":..,"contextLength":..}                                       本轮度量（RunEndEvent.getMetrics）
  * {"type":"error","message":".."} / {"type":"finish"}           失败兜底 / 正常收尾
  * </pre>
  * <p>
@@ -89,9 +96,25 @@ public class TravelAgentStreamController {
     private ReActAgent travelAgent;
 
     /**
+     * 共用的 ChatModel（llm-core 自动装配）：读取模型上下文窗口，作为用量面板占用率基准
+     */
+    @Resource
+    private ChatModel chatModel;
+
+    /**
      * 内存会话存储：会话 id -> AgentSession（demo 实现，进程内有效）
      */
     private final Map<String, AgentSession> sessionStore = new ConcurrentHashMap<>();
+
+    /**
+     * 单轮流式请求的过程状态（Controller 为单例，状态必须每请求一份，不能挂在字段上）
+     */
+    private static final class StreamState {
+        /**
+         * 末次推理（ReasonEndEvent）的输入 token 数 ≈ 运行结束时的上下文占用
+         */
+        private long contextTokens;
+    }
 
     /**
      * 出行规划工作台流式端点（自定义过程事件协议 SSE）
@@ -121,11 +144,14 @@ public class TravelAgentStreamController {
         Map<String, Object> startFrame = frame("start");
         startFrame.put("sessionId", session.getSessionId());
 
+        // 每请求一份的度量状态（末次推理的上下文占用）
+        StreamState state = new StreamState();
+
         Flux<String> payloads = Flux.concat(
                 Flux.just(JSON.toJSONString(startFrame)),
                 travelAgent.prompt(message).session(session).stream()
                         // 单事件 → 0..n 帧；concatMapIterable 保证严格按事件顺序出帧
-                        .concatMapIterable(this::toPayloads),
+                        .concatMapIterable(event -> toPayloads(event, state)),
                 Flux.just("{\"type\":\"finish\"}", "[DONE]"));
 
         // 自主订阅：request(MAX)，事件到达即写即刷，无背压饥饿（缘由见类注释）
@@ -155,8 +181,10 @@ public class TravelAgentStreamController {
 
     /**
      * 单个 Agent 事件 → 0..n 个 JSON 事件帧（顺序即语义顺序）
+     *
+     * @param state 本轮度量状态（记录末次推理的上下文占用）
      */
-    private List<String> toPayloads(AgentEvent event) {
+    private List<String> toPayloads(AgentEvent event, StreamState state) {
         if (event instanceof PlanEvent) {
             PlanEvent plan = (PlanEvent) event;
             Map<String, Object> frame = frame("plan");
@@ -192,8 +220,14 @@ public class TravelAgentStreamController {
             return Collections.singletonList("{\"type\":\"reason_start\"}");
         }
         if (event instanceof ReasonEndEvent) {
+            ReasonEndEvent reason = (ReasonEndEvent) event;
+            // 记录本次推理的上下文占用（末次即运行结束时的上下文大小），供收尾的 metrics 帧使用
+            AiUsage usage = reason.getResponse() == null ? null : reason.getResponse().getUsage();
+            if (usage != null && usage.promptTokens() > 0) {
+                state.contextTokens = usage.promptTokens();
+            }
             Map<String, Object> frame = frame("reason_end");
-            frame.put("durationMs", ((ReasonEndEvent) event).getDurationMs());
+            frame.put("durationMs", reason.getDurationMs());
             return Collections.singletonList(JSON.toJSONString(frame));
         }
         if (event instanceof ActionStartEvent) {
@@ -206,10 +240,40 @@ public class TravelAgentStreamController {
             return Collections.singletonList("{\"type\":\"run_start\"}");
         }
         if (event instanceof RunEndEvent) {
-            return Collections.singletonList("{\"type\":\"run_end\"}");
+            RunEndEvent runEnd = (RunEndEvent) event;
+            Map<String, Object> frame = frame("run_end");
+            frame.put("turnCount", runEnd.getTrace().getTurnCount());
+            return Arrays.asList(JSON.toJSONString(frame), metricsPayload(runEnd, state));
         }
         // 其余事件（HITL/Context/拦截器等）本页不消费，静默跳过
         return Collections.emptyList();
+    }
+
+    /**
+     * 本轮度量帧：token 用量（输入/输出/缓存）+ 缓存命中率 + 上下文占用。
+     *
+     * <p>数据源为 {@link RunEndEvent#getMetrics()}（框架在一次运行开始时 reset、结束时写入总耗时，
+     * 每次模型交互 addUsage 累加），因此是「本轮流式请求」的合计值；缓存命中率取
+     * {@link Metrics#getCacheRate()}（缓存读取输入 token / 输入 token，0-100 保留两位小数）。</p>
+     *
+     * <p>上下文占用另有两个字段：{@code contextTokens} 为末次推理的输入 token（= 运行结束时
+     * 上下文实际大小，provider 未回 usage 时退化为本轮输入合计），{@code contextLength} 为模型
+     * 上下文窗口（ChatModel 配置项 ai.chat.openai.context-length），前端据此计算占用率。</p>
+     */
+    private String metricsPayload(RunEndEvent event, StreamState state) {
+        Metrics metrics = event.getMetrics();
+        Map<String, Object> frame = frame("metrics");
+        frame.put("promptTokens", metrics.getPromptTokens());
+        frame.put("completionTokens", metrics.getCompletionTokens());
+        frame.put("totalTokens", metrics.getTotalTokens());
+        frame.put("cacheReadInputTokens", metrics.getCacheReadInputTokens());
+        frame.put("cacheCreationInputTokens", metrics.getCacheCreationInputTokens());
+        frame.put("cacheRate", metrics.getCacheRate());
+        frame.put("durationMs", metrics.getTotalDuration());
+        frame.put("contextTokens",
+                state.contextTokens > 0 ? state.contextTokens : metrics.getPromptTokens());
+        frame.put("contextLength", chatModel.getConfig().getContextLength());
+        return JSON.toJSONString(frame);
     }
 
     /**

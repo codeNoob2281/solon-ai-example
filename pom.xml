@@ -18,7 +18,7 @@
     <packaging>pom</packaging>
 
     <name>Solon AI Example</name>
-    <description>Minimal AI chat example: Spring Boot 2.7.18 + Solon AI 4.1.0</description>
+    <description>Minimal AI chat example: Spring Boot 2.7.18 + Solon AI 4.1.1</description>
 
     <modules>
         <module>llm-core</module>
@@ -31,8 +31,8 @@
 
     <properties>
         <java.version>8</java.version>
-        <solon-ai.version>4.1.0</solon-ai.version>
-        <!-- solon-ai 4.0.6 内部 pin 的 milvus-sdk-java 版本，保持一致 -->
+        <solon-ai.version>4.1.1</solon-ai.version>
+        <!-- solon-ai 4.1.1 内部 pin 的 milvus-sdk-java 版本，保持一致 -->
         <milvus-sdk.version>2.6.3</milvus-sdk.version>
         <springdoc.version>1.8.0</springdoc.version>
         <!-- JSON 序列化统一 fastjson2（依赖声明在基础模块 llm-core，随依赖传递） -->
@@ -42,7 +42,7 @@
     <dependencyManagement>
         <dependencies>
             <!--
-              Solon AI UI 协议适配（solon-ai-ui 子项目，Central 已发布 4.1.0）
+              Solon AI UI 协议适配（solon-ai-ui 子项目，Central 已发布 4.1.1）
               将 ChatModel/Agent 事件流包装为 Vercel AI SDK UI Message Stream Protocol v1 SSE，
               供 @ai-sdk/react 的 useChat 直接消费（依赖 solon-ai-core，传递 solon-web-sse）
             -->
