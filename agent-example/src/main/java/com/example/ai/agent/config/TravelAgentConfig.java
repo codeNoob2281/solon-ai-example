@@ -1,6 +1,7 @@
 package com.example.ai.agent.config;
 
 import com.example.ai.agent.interceptor.ReActLoggingAgentInterceptor;
+import com.example.ai.agent.tool.BookingToolProvider;
 import com.example.ai.agent.tool.TravelToolProvider;
 import com.example.ai.agent.tool.WeatherQueryToolProvider;
 import org.noear.solon.ai.agent.react.ReActAgent;
@@ -50,6 +51,11 @@ public class TravelAgentConfig {
     public static final String FLIGHT_TOOL_NAME = "query_flight_tickets";
 
     /**
+     * 订购工具名
+     */
+    public static final String BOOKING_TOOL_NAME = "book_ticket";
+
+    /**
      * 当前日期占位符（每次推理由 instruction(Function) 动态替换）
      */
     private static final String CURRENT_DATE_PLACEHOLDER = "{{currentDate}}";
@@ -93,7 +99,8 @@ public class TravelAgentConfig {
             + "2. 用 " + ROUTE_TOOL_NAME + " 查询两城间路线概况（距离、是否有直达高铁/直飞）；\n"
             + "3. 用 " + TRAIN_TOOL_NAME + " 查询 travelDate 当天火车票；\n"
             + "4. 用 " + FLIGHT_TOOL_NAME + " 查询 travelDate 当天机票；\n"
-            + "5. 综合对比所有数据后给出最终建议。\n"
+            + "5. 若用户明确要求订购，用 " + BOOKING_TOOL_NAME + " 为用户订购所选车次或航班；\n"
+            + "6. 综合对比所有数据后给出最终建议。\n"
             + "所有结论必须基于工具返回数据（Observation），严禁编造车次、航班、价格、余票或天气。\n\n"
             + "## 筛选与建议规则\n"
             + "1. 候选项（含次日到达）必须不晚于期望到达时间（travelDate 当天 arriveTime 时刻前）；\n"
@@ -104,7 +111,8 @@ public class TravelAgentConfig {
             + "始终以中文自然语言回复，响应格式不做限制，可使用 Markdown（小标题、列表、表格等）让内容更清晰：\n"
             + "1) 需要澄清时：直接输出追问话术，不要调用工具，也不要输出 JSON；\n"
             + "2) 规划完成时：给出出行建议，内容须涵盖推荐方案（车次/航班、出发/到达时刻、历时、价格、余票信息）、"
-            + "推荐理由、备选方案与出行提醒（结合两地天气），所有数据一律取自工具返回结果。\n\n"
+            + "推荐理由、备选方案与出行提醒（结合两地天气），所有数据一律取自工具返回结果；\n"
+            + "3) 若用户明确要求订购，调用 book_ticket 返回结果后，用中文自然语言告知用户订单状态（成功/失败）与失败原因。\n\n"
             + "## 当前日期\n"
             + "{{currentDate}}\n"
             + "用户提到的\"今天/明天/后天\"等相对日期，以上述日期为准换算为 yyyy-MM-dd 具体日期（作为 travelDate）；"
@@ -126,7 +134,8 @@ public class TravelAgentConfig {
     @Bean
     public ReActAgent travelAgent(ChatModel chatModel,
                                   WeatherQueryToolProvider weatherQueryToolProvider,
-                                  TravelToolProvider travelToolProvider) {
+                                  TravelToolProvider travelToolProvider,
+                                  BookingToolProvider bookingToolProvider) {
         return ReActAgent.of(chatModel)
                 .name("travel_agent")
                 .role("出行规划助手")
@@ -135,6 +144,7 @@ public class TravelAgentConfig {
                         .replace(CURRENT_DATE_PLACEHOLDER, currentDateLine()))
                 .defaultToolAdd(weatherQueryToolProvider)
                 .defaultToolAdd(travelToolProvider)
+                .defaultToolAdd(bookingToolProvider)
                 .defaultInterceptorAdd(new ReActLoggingAgentInterceptor())
                 .planningMode(true)
                 .planningInstruction(TRAVEL_PLANNING_INSTRUCTION)
