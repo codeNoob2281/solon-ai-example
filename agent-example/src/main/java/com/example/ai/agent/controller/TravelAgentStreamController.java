@@ -17,11 +17,13 @@ import org.noear.solon.ai.agent.react.task.ReasonEndEvent;
 import org.noear.solon.ai.agent.react.task.ReasonStartEvent;
 import org.noear.solon.ai.agent.react.task.ToolCallEndEvent;
 import org.noear.solon.ai.agent.react.task.ToolCallStartEvent;
+import org.noear.solon.ai.agent.session.FileAgentSession;
 import org.noear.solon.ai.agent.session.InMemoryAgentSession;
 import org.noear.solon.ai.agent.trace.Metrics;
 import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.chat.event.ChatEvent;
 import org.noear.solon.ai.chat.event.ChatEventType;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -105,6 +107,12 @@ public class TravelAgentStreamController {
      * 内存会话存储：会话 id -> AgentSession（demo 实现，进程内有效）
      */
     private final Map<String, AgentSession> sessionStore = new ConcurrentHashMap<>();
+
+    /**
+     * 会话记忆存储目录（相对路径，基于应用运行目录），可被 application.yml / 环境变量覆盖
+     */
+    @Value("${ai.chat.session.memory-dir:temp/chat-memory}")
+    private String memoryDir;
 
     /**
      * 单轮流式请求的过程状态（Controller 为单例，状态必须每请求一份，不能挂在字段上）
@@ -345,8 +353,12 @@ public class TravelAgentStreamController {
             }
             log.info("[Travel-Stream] 会话不存在或已失效，创建新会话: sessionKey={}", sessionKey);
         }
-        InMemoryAgentSession session = InMemoryAgentSession.of(
-                sessionKey != null ? sessionKey : UUID.randomUUID().toString());
+
+        if (sessionKey == null) {
+            sessionKey = UUID.randomUUID().toString();
+        }
+
+        FileAgentSession session = new FileAgentSession(sessionKey, memoryDir);
         sessionStore.put(session.getSessionId(), session);
         return session;
     }

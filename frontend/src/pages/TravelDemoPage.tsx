@@ -537,10 +537,41 @@ function UsageBar({ metrics }: { metrics: TurnMetrics }) {
   );
 }
 
+const STORAGE_KEY = 'travel-demo-session';
+
+interface Session {
+  conversationId: string;
+  turns: Turn[];
+}
+
 export default function TravelDemoPage() {
   const [input, setInput] = useState('');
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [conversationId, setConversationId] = useState(() => crypto.randomUUID());
+  const [session, setSession] = useState<Session>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        const data = JSON.parse(stored) as Session;
+        if (data?.conversationId && Array.isArray(data.turns)) {
+          return data;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return { conversationId: crypto.randomUUID(), turns: [] };
+  });
+
+  const { conversationId, turns } = session;
+
+  // 写入本地缓存
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+  }, [session]);
+
+  const updateSession = (updater: (prev: Session) => Session) => {
+    setSession(updater);
+  };
+
   const abortRef = useRef<AbortController | null>(null);
 
   const busy = turns.some(turn => turn.status === 'streaming');
@@ -549,13 +580,13 @@ export default function TravelDemoPage() {
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const applyToLast = (fn: (turn: Turn) => Turn) => {
-    setTurns(prev => {
-      if (prev.length === 0) {
+    updateSession(prev => {
+      if (prev.turns.length === 0) {
         return prev;
       }
-      const copy = prev.slice();
-      copy[copy.length - 1] = fn(copy[copy.length - 1]);
-      return copy;
+      const turns = prev.turns.slice();
+      turns[turns.length - 1] = fn(turns[turns.length - 1]);
+      return { ...prev, turns };
     });
   };
 
@@ -700,8 +731,7 @@ export default function TravelDemoPage() {
   };
 
   const newSession = () => {
-    setTurns([]);
-    setConversationId(crypto.randomUUID());
+    updateSession(() => ({ conversationId: crypto.randomUUID(), turns: [] }));
   };
 
   // 最近一次运行产生的任务列表（多轮时展示最新计划，固定在对话区上方）
@@ -728,18 +758,21 @@ export default function TravelDemoPage() {
       return;
     }
     setInput('');
-    setTurns(prev => [
+    updateSession(prev => ({
       ...prev,
-      {
-        id: Date.now(),
-        userText: text,
-        status: 'streaming',
-        plan: null,
-        steps: [],
-        answer: '',
-        metrics: null,
-      },
-    ]);
+      turns: [
+        ...prev.turns,
+        {
+          id: Date.now(),
+          userText: text,
+          status: 'streaming',
+          plan: null,
+          steps: [],
+          answer: '',
+          metrics: null,
+        },
+      ],
+    }));
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -747,16 +780,26 @@ export default function TravelDemoPage() {
       .catch((err: unknown) => {
         // 用户主动停止：保留已生成的过程与部分结果
         if ((err as Error)?.name !== 'AbortError') {
-          applyToLast(turn =>
-            turn.status === 'streaming'
-              ? { ...finalizeTurn(turn), error: turn.error ?? (err as Error)?.message ?? String(err) }
-              : turn,
+          updateSession(prev =>
+            prev.turns.some(turn => turn.status === 'streaming')
+              ? {
+                  ...prev,
+                  turns: prev.turns.map(turn =>
+                    turn.status === 'streaming'
+                      ? { ...finalizeTurn(turn), error: turn.error ?? (err as Error)?.message ?? String(err) }
+                      : turn,
+                  ),
+                }
+              : prev,
           );
         }
       })
       .finally(() => {
         // 无论正常结束、异常还是中断，都确保该轮不再处于 streaming 态
-        applyToLast(turn => (turn.status === 'streaming' ? finalizeTurn(turn) : turn));
+        updateSession(prev => ({
+          ...prev,
+          turns: prev.turns.map(turn => (turn.status === 'streaming' ? finalizeTurn(turn) : turn)),
+        }));
         if (abortRef.current === controller) {
           abortRef.current = null;
         }
