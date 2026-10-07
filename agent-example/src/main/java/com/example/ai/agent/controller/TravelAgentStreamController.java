@@ -1,6 +1,7 @@
 package com.example.ai.agent.controller;
 
 import com.alibaba.fastjson2.JSON;
+import com.example.ai.agent.dto.HitlSubmitRequest;
 import com.example.ai.agent.dto.TravelStreamRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.AiUsage;
@@ -9,6 +10,11 @@ import org.noear.solon.ai.agent.AgentSession;
 import org.noear.solon.ai.agent.react.RunEndEvent;
 import org.noear.solon.ai.agent.react.RunStartEvent;
 import org.noear.solon.ai.agent.react.ReActAgent;
+import org.noear.solon.ai.agent.react.intercept.HITL;
+import org.noear.solon.ai.agent.react.intercept.HITLDecision;
+import org.noear.solon.ai.agent.react.intercept.HITLDecidedEvent;
+import org.noear.solon.ai.agent.react.intercept.HITLPendingEvent;
+import org.noear.solon.ai.agent.react.intercept.HITLTask;
 import org.noear.solon.ai.agent.react.task.ActionEndEvent;
 import org.noear.solon.ai.agent.react.task.ActionStartEvent;
 import org.noear.solon.ai.agent.react.task.PlanEvent;
@@ -135,14 +141,8 @@ public class TravelAgentStreamController {
         SseEmitter emitter = new SseEmitter(0L);
 
         String sessionKey = trimToNull(request == null ? null : request.getId());
-        String message = trimToNull(request == null ? null : request.getMessage());
-        if (message == null) {
-            sendPayload(emitter, "{\"type\":\"error\",\"message\":\"message 不能为空\"}");
-            sendPayload(emitter, "{\"type\":\"finish\"}");
-            sendPayload(emitter, "[DONE]");
-            emitter.complete();
-            return emitter;
-        }
+        String message = request == null ? null : request.getMessage();
+        // 允许空 message（HITL 断点续传）
 
         AgentSession session = resolveSession(sessionKey);
 
@@ -247,13 +247,31 @@ public class TravelAgentStreamController {
         if (event instanceof RunStartEvent) {
             return Collections.singletonList("{\"type\":\"run_start\"}");
         }
+        if (event instanceof HITLPendingEvent) {
+            HITLPendingEvent hitl = (HITLPendingEvent) event;
+            Map<String, Object> frame = frame("hitl_pending");
+            frame.put("tasks", hitl.getPendingTasks());
+            return Collections.singletonList(JSON.toJSONString(frame));
+        }
+        if (event instanceof HITLDecidedEvent) {
+            HITLDecidedEvent hitl = (HITLDecidedEvent) event;
+            Map<String, Object> frame = frame("hitl_decided");
+            frame.put("callId", hitl.getCallId());
+            frame.put("toolName", hitl.getToolName());
+            frame.put("args", hitl.getArgs());
+            frame.put("comment", hitl.getComment());
+            frame.put("approved", hitl.isApproved());
+            frame.put("rejected", hitl.isRejected());
+            frame.put("skipped", hitl.isSkipped());
+            return Collections.singletonList(JSON.toJSONString(frame));
+        }
         if (event instanceof RunEndEvent) {
             RunEndEvent runEnd = (RunEndEvent) event;
             Map<String, Object> frame = frame("run_end");
             frame.put("turnCount", runEnd.getTrace().getTurnCount());
             return Arrays.asList(JSON.toJSONString(frame), metricsPayload(runEnd, state));
         }
-        // 其余事件（HITL/Context/拦截器等）本页不消费，静默跳过
+        // 其余事件（Context/拦截器等）本页不消费，静默跳过
         return Collections.emptyList();
     }
 
@@ -382,5 +400,62 @@ public class TravelAgentStreamController {
             return text;
         }
         return text.substring(0, maxLength) + "...";
+    }
+
+    /**
+     * 人工审批提交：前端提交批准/拒绝/跳过决策后，再次请求 stream 接口（message 可为空）即可断点续传。
+     */
+    @PostMapping("/hitl/submit")
+    public Map<String, Object> submitHitl(@RequestBody HitlSubmitRequest request) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        String sessionId = trimToNull(request == null ? null : request.getSessionId());
+        if (sessionId == null) {
+            result.put("success", false);
+            result.put("message", "sessionId 不能为空");
+            return result;
+        }
+
+        AgentSession session = resolveSession(sessionId);
+
+        HITLTask task = null;
+        if (request.getCallUuid() != null) {
+            task = HITL.getPendingTaskByCallUuid(session, request.getCallUuid());
+        }
+        if (task == null) {
+            task = HITL.getPendingTask(session);
+        }
+        if (task == null) {
+            result.put("success", false);
+            result.put("message", "没有待审批的任务");
+            return result;
+        }
+
+        HITLDecision decision;
+        Integer action = request.getAction();
+        if (action == null) {
+            result.put("success", false);
+            result.put("message", "action 不能为空");
+            return result;
+        }
+
+        if (action == HITLDecision.ACTION_APPROVE) {
+            decision = HITLDecision.approve();
+            if (request.getModifiedArgs() != null && !request.getModifiedArgs().isEmpty()) {
+                decision.modifiedArgs(request.getModifiedArgs());
+            }
+        } else if (action == HITLDecision.ACTION_REJECT) {
+            decision = HITLDecision.reject(request.getComment());
+        } else if (action == HITLDecision.ACTION_SKIP) {
+            decision = HITLDecision.skip(request.getComment());
+        } else {
+            result.put("success", false);
+            result.put("message", "不支持的审批动作: " + action);
+            return result;
+        }
+
+        HITL.submit(session, task, decision);
+        result.put("success", true);
+        result.put("message", "决策已提交，请重新请求流式接口触发续传");
+        return result;
     }
 }

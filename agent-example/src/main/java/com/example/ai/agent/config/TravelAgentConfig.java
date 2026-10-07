@@ -5,6 +5,7 @@ import com.example.ai.agent.tool.BookingToolProvider;
 import com.example.ai.agent.tool.TravelToolProvider;
 import com.example.ai.agent.tool.WeatherQueryToolProvider;
 import org.noear.solon.ai.agent.react.ReActAgent;
+import org.noear.solon.ai.agent.react.intercept.HITLInterceptor;
 import org.noear.solon.ai.chat.ChatModel;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -129,13 +130,23 @@ public class TravelAgentConfig {
     }
 
     /**
+     * 订购工具人工介入拦截器：book_ticket 调用前必须人工确认
+     */
+    @Bean
+    public HITLInterceptor hitlInterceptor() {
+        return new HITLInterceptor()
+                .onTool(BOOKING_TOOL_NAME, (trace, args) -> "订购火车票/机票需人工确认");
+    }
+
+    /**
      * 出行规划 ReActAgent：绑定 ChatModel + 本地 Mock 工具 + 计划模式
      */
     @Bean
     public ReActAgent travelAgent(ChatModel chatModel,
                                   WeatherQueryToolProvider weatherQueryToolProvider,
                                   TravelToolProvider travelToolProvider,
-                                  BookingToolProvider bookingToolProvider) {
+                                  BookingToolProvider bookingToolProvider,
+                                  HITLInterceptor hitlInterceptor) {
         return ReActAgent.of(chatModel)
                 .name("travel_agent")
                 .role("出行规划助手")
@@ -145,6 +156,7 @@ public class TravelAgentConfig {
                 .defaultToolAdd(weatherQueryToolProvider)
                 .defaultToolAdd(travelToolProvider)
                 .defaultToolAdd(bookingToolProvider)
+                .defaultInterceptorAdd(hitlInterceptor)
                 .defaultInterceptorAdd(new ReActLoggingAgentInterceptor())
                 .planningMode(true)
                 .planningInstruction(TRAVEL_PLANNING_INSTRUCTION)

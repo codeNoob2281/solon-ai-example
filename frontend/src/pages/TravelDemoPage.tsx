@@ -59,6 +59,14 @@ import { mermaid } from '@streamdown/mermaid';
 import { Streamdown } from 'streamdown';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import {
+  Confirmation,
+  ConfirmationAccepted,
+  ConfirmationAction,
+  ConfirmationActions,
+  ConfirmationRejected,
+  ConfirmationRequest,
+} from '@/components/ai-elements/confirmation';
 
 /**
  * 出行规划工作台（ReActAgent 工作过程可视化，UI 基于 Vercel AI Elements 组件库）
@@ -542,6 +550,15 @@ const STORAGE_KEY = 'travel-demo-session';
 interface Session {
   conversationId: string;
   turns: Turn[];
+  hitlPending?: HitlTask[];
+  hitlDecided?: { callUuid: string; toolName: string; approved?: boolean; rejected?: boolean; skipped?: boolean; comment: string };
+}
+
+interface HitlTask {
+  callUuid: string;
+  toolName: string;
+  args: Record<string, any>;
+  comment: string;
 }
 
 export default function TravelDemoPage() {
@@ -573,8 +590,9 @@ export default function TravelDemoPage() {
   };
 
   const abortRef = useRef<AbortController | null>(null);
+  const [resuming, setResuming] = useState(false);
 
-  const busy = turns.some(turn => turn.status === 'streaming');
+  const busy = resuming || turns.some(turn => turn.status === 'streaming');
 
   // 组件卸载（切换菜单）时中断进行中的流，后端随之断开并停止 Agent
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -717,6 +735,51 @@ export default function TravelDemoPage() {
       case 'run_end': {
         const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
         applyToLast(turn => ({ ...turn, turnCount: num(event.turnCount) }));
+        updateSession(prev => ({ ...prev, hitlDecided: undefined }));
+        break;
+      }
+      case 'hitl_pending': {
+        const tasks = Array.isArray(event.tasks)
+          ? event.tasks.map((t: any) => ({
+              callUuid: String(t.callUuid ?? ''),
+              toolName: String(t.toolName ?? 'unknown'),
+              args: (t.args ?? {}) as Record<string, any>,
+              comment: String(t.comment ?? ''),
+            }))
+          : [];
+        updateSession(prev => ({ ...prev, hitlPending: tasks, hitlDecided: undefined }));
+        break;
+      }
+      case 'hitl_decided': {
+        const callId = String(event.callId ?? '');
+        updateSession(prev => {
+          const turns = prev.turns.slice();
+          if (turns.length > 0 && turns[turns.length - 1].status === 'streaming') {
+            turns[turns.length - 1] = finalizeTurn(turns[turns.length - 1]);
+          }
+          turns.push({
+            id: Date.now(),
+            userText: '',
+            status: 'streaming',
+            plan: null,
+            steps: [],
+            answer: '',
+            metrics: null,
+          });
+          return {
+            ...prev,
+            turns,
+            hitlPending: prev.hitlPending?.filter(t => t.callUuid !== callId) ?? [],
+            hitlDecided: {
+              callUuid: callId,
+              toolName: String(event.toolName ?? ''),
+              approved: event.approved === true,
+              rejected: event.rejected === true,
+              skipped: event.skipped === true,
+              comment: String(event.comment ?? ''),
+            },
+          };
+        });
         break;
       }
       default:
@@ -728,6 +791,84 @@ export default function TravelDemoPage() {
 
   const stop = () => {
     abortRef.current?.abort();
+  };
+
+  const submitHitl = async (callUuid: string, action: 'approve' | 'reject' | 'skip') => {
+    if (busy) return;
+    setResuming(true);
+    const actionMap: Record<string, number> = { approve: 1, reject: 2, skip: 3 };
+    try {
+      const res = await fetch('/api/agent/travel/hitl/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: conversationId,
+          callUuid,
+          action: actionMap[action],
+          comment: '',
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      updateSession(prev => ({
+        ...prev,
+        hitlPending: prev.hitlPending?.filter(t => t.callUuid !== callUuid) ?? [],
+        hitlDecided: {
+          callUuid,
+          toolName: prev.hitlPending?.find(t => t.callUuid === callUuid)?.toolName ?? '',
+          approved: action === 'approve',
+          rejected: action === 'reject',
+          skipped: action === 'skip',
+          comment: '',
+        },
+      }));
+      await resumeStream();
+    } catch (err) {
+      updateSession(prev => {
+        const hasStreaming = prev.turns.some(turn => turn.status === 'streaming');
+        if (!hasStreaming) {
+          return prev;
+        }
+        return {
+          ...prev,
+          turns: prev.turns.map(turn =>
+            turn.status === 'streaming'
+              ? { ...finalizeTurn(turn), error: turn.error ?? (err as Error)?.message ?? String(err) }
+              : turn,
+          ),
+        };
+      });
+    } finally {
+      setResuming(false);
+    }
+  };
+
+  const resumeStream = () => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    return streamTravel({ id: conversationId, message: '' }, handleEvent, controller.signal)
+      .catch((err: unknown) => {
+        if ((err as Error)?.name !== 'AbortError') {
+          updateSession(prev => ({
+            ...prev,
+            turns: prev.turns.map(turn =>
+              turn.status === 'streaming'
+                ? { ...finalizeTurn(turn), error: turn.error ?? (err as Error)?.message ?? String(err) }
+                : turn,
+            ),
+          }));
+        }
+      })
+      .finally(() => {
+        updateSession(prev => ({
+          ...prev,
+          turns: prev.turns.map(turn => (turn.status === 'streaming' ? finalizeTurn(turn) : turn)),
+        }));
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
+      });
   };
 
   const newSession = () => {
@@ -760,6 +901,8 @@ export default function TravelDemoPage() {
     setInput('');
     updateSession(prev => ({
       ...prev,
+      hitlPending: [],
+      hitlDecided: undefined,
       turns: [
         ...prev.turns,
         {
@@ -829,13 +972,15 @@ export default function TravelDemoPage() {
               description="例如「我明天下午6点前要从北京到上海」。信息不全时 Agent 会先追问，可多轮补充；planningMode 会先拆解任务列表，再依次调用天气 / 路线 / 火车票 / 机票工具。"
             />
           ) : (
-            turns.map(turn => (
+            turns.map((turn, index) => (
               <div className="turn" key={turn.id}>
-                <Message from="user">
-                  <MessageContent>
-                    <MessageResponse>{turn.userText}</MessageResponse>
-                  </MessageContent>
-                </Message>
+                {turn.userText ? (
+                  <Message from="user">
+                    <MessageContent>
+                      <MessageResponse>{turn.userText}</MessageResponse>
+                    </MessageContent>
+                  </Message>
+                ) : null}
                 {/* 一轮对话一个思考链折叠块（深度思考 + 工具调用），整轮结束后自动折叠；
                     无步骤且尚无可见输出时以 Shimmer 作活动指示 */}
                 {turn.steps.length > 0 ? (
@@ -854,6 +999,54 @@ export default function TravelDemoPage() {
                       <MessageResponse className="md">{turn.answer}</MessageResponse>
                     </MessageContent>
                   </Message>
+                ) : null}
+                {index === turns.length - 1 && session.hitlPending && session.hitlPending.length > 0 ? (
+                  <div className="hitl-approval space-y-2">
+                    {session.hitlPending.map(task => {
+                      const decided = session.hitlDecided?.callUuid === task.callUuid ? session.hitlDecided : null;
+                      const state = decided
+                        ? decided.approved
+                          ? 'approval-responded'
+                          : 'output-denied'
+                        : 'approval-requested';
+                      const approval = decided
+                        ? { id: task.callUuid, approved: decided.approved, reason: decided.comment }
+                        : { id: task.callUuid };
+                      return (
+                        <Confirmation key={task.callUuid} approval={approval} state={state}>
+                          <ConfirmationRequest>
+                            <div className="text-sm">
+                              <div className="font-medium">
+                                订购审批：{task.toolName === 'book_ticket' ? '订购火车票/机票' : task.toolName}
+                              </div>
+                              <div className="text-muted-foreground mt-1">
+                                {Object.entries(task.args).map(([k, v]) => (
+                                  <div key={k}>{k}: {String(v)}</div>
+                                ))}
+                              </div>
+                              {task.comment ? <div className="text-amber-600 mt-1">{task.comment}</div> : null}
+                            </div>
+                          </ConfirmationRequest>
+                          <ConfirmationActions>
+                            <ConfirmationAction onClick={() => submitHitl(task.callUuid, 'approve')}>
+                              批准
+                            </ConfirmationAction>
+                            <ConfirmationAction onClick={() => submitHitl(task.callUuid, 'reject')}>
+                              拒绝
+                            </ConfirmationAction>
+                          </ConfirmationActions>
+                          <ConfirmationAccepted>
+                            <div className="text-sm text-emerald-600">已批准，正在继续执行...</div>
+                          </ConfirmationAccepted>
+                          <ConfirmationRejected>
+                            <div className="text-sm text-red-600">
+                              已拒绝{decided?.comment ? `：${decided.comment}` : ''}
+                            </div>
+                          </ConfirmationRejected>
+                        </Confirmation>
+                      );
+                    })}
+                  </div>
                 ) : null}
               </div>
             ))
