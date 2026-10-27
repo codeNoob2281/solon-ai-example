@@ -1,0 +1,34 @@
+server:
+  port: ${SERVER_PORT:8083}
+
+spring:
+  application:
+    name: model-example
+
+  # MySQL 数据源：模型配置表（mc_provider 供应商 / mc_model 模型），MyBatis-Plus 持久层
+  # Hikari 懒连接 + 未启用 sql.init：应用启动不要求 MySQL 在线，首次使用配置页时才建表
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/rag_demo?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+
+# Solon AI ChatModel 自动装配配置（由 llm-core starter 提供；本模块用默认 ChatModel 兜底 + 按配置动态构建）
+ai:
+  chat:
+    openai:
+      api-url: ${AI_API_URL:http://localhost:1234/v1}
+      api-key: ${AI_API_KEY:sk-your-api-key}
+      model: ${AI_MODEL:gpt-3.5-turbo}
+      provider: openai
+      context-length: ${AI_CHAT_CONTEXT_LENGTH:128000}
+      logging-enabled: ${AI_CHAT_LOGGING_ENABLED:false}
+
+  model:
+    # 模型元信息目录（models.dev 在线目录）：模型窗口信息缺失时的自动补全来源
+    # 置空可完全禁用远程补全（此时窗口信息仅能手工填写）
+    metadata-catalog-url: ${MODEL_METADATA_CATALOG_URL:https://models.dev/api.json}
+
+logging:
+  level:
+    com.example.ai: DEBUG
+    org.noear: INFO

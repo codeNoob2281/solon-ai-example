@@ -49,6 +49,15 @@ export function postJSON<T>(url: string, body?: unknown): Promise<T> {
   });
 }
 
+/** PUT + JSON（如编辑供应商 / 模型配置，后端语义为整体覆盖） */
+export function putJSON<T>(url: string, body?: unknown): Promise<T> {
+  return request<T>(url, {
+    method: 'PUT',
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
 /** multipart/form-data 上传（如知识库「上传文件」入库；浏览器自动设置 Content-Type 与 boundary） */
 export function postForm<T>(url: string, form: FormData): Promise<T> {
   return request<T>(url, { method: 'POST', body: form });

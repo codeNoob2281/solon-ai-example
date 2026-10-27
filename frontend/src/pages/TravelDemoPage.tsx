@@ -1009,8 +1009,9 @@ export default function TravelDemoPage() {
                           ? 'approval-responded'
                           : 'output-denied'
                         : 'approval-requested';
+                      // approved 在类型上是可选布尔，确认组件要求必填布尔：undefined 视为未通过
                       const approval = decided
-                        ? { id: task.callUuid, approved: decided.approved, reason: decided.comment }
+                        ? { id: task.callUuid, approved: decided.approved === true, reason: decided.comment }
                         : { id: task.callUuid };
                       return (
                         <Confirmation key={task.callUuid} approval={approval} state={state}>

@@ -11,16 +11,17 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
-  # MySQL 数据源（rag-example 知识库：kb_document 文档表 + kb_chunk 父块表，MyBatis-Plus 持久层）
+  # MySQL 数据源（rag-example 知识库：kb_document 文档表 + kb_chunk 父块表；
+  # model-example 模型配置：mc_provider 供应商表 + mc_model 模型表；均为 MyBatis-Plus 持久层）
   # URL 默认带 createDatabaseIfNotExist=true：库不存在自动创建；
   # Hikari 懒连接 + 未启用 sql.init：应用启动不要求 MySQL 在线，
-  # 首次使用知识库时才建连/建表（DDL 见 rag-example resources/sql/knowledge_base.sql，与懒建表语句一致）
+  # 首次使用知识库/配置页时才建连/建表（DDL 见各模块 resources/sql，与懒建表语句一致）
   datasource:
     url: ${MYSQL_URL:jdbc:mysql://localhost:3306/rag_demo?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:}
 
-# Solon AI ChatModel 自动装配配置（由 llm-core starter 提供，三个模块共用同一个 ChatModel Bean）
+# Solon AI ChatModel 自动装配配置（由 llm-core starter 提供，四个模块共用同一个 ChatModel Bean）
 # .env 文件中的同名配置会覆盖此处默认值
 ai:
   chat:
@@ -40,6 +41,11 @@ ai:
       memory-dir: ${AI_CHAT_MEMORY_DIR:temp/chat-memory}
       # 交互窗口大小：模型交互时只取最近 N 条消息作为上下文（文件保留完整历史）
       window-size: ${AI_CHAT_WINDOW_SIZE:20}
+
+  # 模型配置示例（model-example，前缀 ai.model）：模型元信息自动补全来源
+  model:
+    # 供应商 /v1/models 未给出窗口信息时的补全目录（models.dev 在线目录；置空＝禁用远程补全）
+    metadata-catalog-url: ${MODEL_METADATA_CATALOG_URL:https://models.dev/api.json}
 
   # RAG 示例配置（rag-example，前缀 ai.rag，见 RagProperties）
   rag:

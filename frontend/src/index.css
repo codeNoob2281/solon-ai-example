@@ -148,6 +148,159 @@ body {
   color: var(--muted-foreground);
 }
 
+/* 模型选择触发器：位于输入框左侧，同时展示「模型名 + 当前思考档位」 */
+.model-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 42px;
+  max-width: 300px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  /* height 已由 flex 居中撑起；行高不能用 1——配合下方标签的 overflow:hidden
+     会把 p/g 等下伸部分裁掉（文字下半截被遮住） */
+  line-height: 1.5;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.model-trigger:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: #f7f9ff;
+}
+
+.model-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.model-trigger-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--muted-foreground);
+}
+
+.model-trigger-label {
+  min-width: 0;
+  max-width: 140px;
+  /* 省略号需要 overflow:hidden；配合父级 line-height:1 会按行盒高度裁切文字，
+     现在行高 1.5 已足够容纳 p/g 等下伸部分 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* 外层显示的思考档位（模型名右侧的小胶囊） */
+.model-trigger-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: #eef1fb;
+  color: #3d57d6;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.model-trigger-level-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.model-trigger-caret {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  opacity: 0.55;
+}
+
+/* 选中项的对勾：未选中时占位隐藏，保持条目左侧对齐一致 */
+.model-check {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.model-check.hidden {
+  opacity: 0;
+}
+
+/* 模型弹窗底部的「思考深度」区：与上方模型列表用分隔线隔开 */
+.model-popover-reasoning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: none;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: #fbfcfe;
+}
+
+.model-popover-reasoning-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.model-popover-reasoning-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.model-popover-reasoning-options {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.model-popover-reasoning-empty {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+/* 思考档位按钮：未选中为描边，选中态用浅主色底 + 主色字（与截图的分段按钮观感对齐） */
+.reasoning-option {
+  height: 28px;
+  min-width: 40px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+}
+
+.reasoning-option:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.reasoning-option.is-active,
+.reasoning-option.is-active:hover:not(:disabled) {
+  border-color: #b9c6f7;
+  background: #eef1fb;
+  color: #3d57d6;
+  font-weight: 600;
+}
+
 .msg-list {
   flex: 1;
   overflow-y: auto;
@@ -180,8 +333,19 @@ body {
   font-size: 13px;
 }
 
+/* 切换模型 / 思考档位的提示：消息区下方的灰色小字，仅提示「下一轮生效」 */
+.chat-switch-notice {
+  flex: none;
+  margin: 0 4px 6px;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
 .chat-input {
   display: flex;
+  align-items: center;
   gap: 10px;
   padding: 12px 4px 18px;
   border-top: 1px solid var(--border);
@@ -581,6 +745,202 @@ body {
 
 [data-streamdown="table-wrapper"] div.absolute > button {
   white-space: nowrap;
+}
+
+/* ==================== 模型配置页（系统管理 > 模型配置） ==================== */
+
+/* API Key 输入框的圆点遮罩（配合 ModelConfigPage 的 SecretInput）：
+   输入框保持 type="text" 以避免浏览器密码自动填充，遮罩改由 CSS 负责——
+   输入过程中也显示圆点，点「眼睛」时去掉该类即显示明文。
+   非 WebKit 浏览器不支持该属性，组件侧会退化为 type="password" + autocomplete="new-password"。 */
+.secret-input input {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
+
+/* 抽屉底部操作区：按钮整体靠右下角（保存靠左、取消靠右，顺序由 JSX 决定） */
+.drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 模型测试弹窗底部：左侧说明（靠左）+ 右侧操作按钮（批量测试按钮固定右下角） */
+.model-test-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 4px 0;
+}
+
+/* 左下角说明：仅「模型测试说明 + ? 图标」，正文在气泡里 */
+.model-test-hint {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-test-hint-label {
+  font-size: 12px;
+}
+
+.model-test-hint-icon {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  cursor: help;
+  transition: color 0.15s;
+}
+
+.model-test-hint-icon:hover {
+  color: var(--primary);
+}
+
+/* 说明气泡正文：段落紧凑，与弹窗字号对齐 */
+.model-test-hint-popover {
+  max-width: 380px;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.model-test-hint-popover p {
+  margin: 0 0 8px;
+}
+
+.model-test-hint-popover p:last-child {
+  margin-bottom: 0;
+}
+
+.model-test-hint-popover code {
+  background: #f0f2f8;
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 12px;
+}
+
+.model-test-hint-popover .model-test-hint-warn {
+  color: #b26a00;
+}
+
+.model-test-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 模型测试结果单元格：状态标签 + 一行结果摘要（超长省略，hover 看完整 message） */
+.model-test-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.model-test-message {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-test-message.is-error {
+  color: #c0392b;
+}
+
+
+.model-config {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 20px 24px;
+}
+
+.model-config-alert {
+  margin-top: 12px;
+}
+
+/* 供应商表格区：占满剩余高度，超高时自身滚动（表格 sticky 表头随之外层滚动） */
+.model-config-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 14px;
+  overflow: auto;
+}
+
+/* 抽屉 / 弹窗内的表单：字段纵向排布，标签与控件紧凑 */
+.model-config-form .ant-form-item {
+  margin-bottom: 14px;
+}
+
+/* 推理档位编辑行：key / 显示名 / API 参数值 + 删除按钮 */
+.reasoning-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reasoning-level-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 远程模型多选列表（一键获取模型弹窗） */
+.remote-model-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 4px;
+}
+
+.remote-model-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.remote-model-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.remote-model-row:hover {
+  background: #f5f7fb;
+}
+
+.remote-model-row.is-added {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.remote-model-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-model-meta {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--muted-foreground);
 }
 
 /* ==================== RAG 问答：引用来源 ==================== */

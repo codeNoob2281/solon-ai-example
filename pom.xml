@@ -25,7 +25,8 @@
         <module>llm-chat-example</module>
         <module>rag-example</module>
         <module>agent-example</module>
-        <!-- 统一启动入口：引用三个示例模块，自动装配，唯一可执行 jar -->
+        <module>model-example</module>
+        <!-- 统一启动入口：引用四个示例模块，自动装配，唯一可执行 jar -->
         <module>ai-starter</module>
     </modules>
 

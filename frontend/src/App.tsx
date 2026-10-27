@@ -11,24 +11,26 @@ import {
   MenuUnfoldOutlined,
   MessageOutlined,
   RobotOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
 import ChatDemoPage from './pages/ChatDemoPage';
 import TravelDemoPage from './pages/TravelDemoPage';
 import RagChatPage from './pages/RagChatPage';
 import KnowledgeBasePage from './pages/KnowledgeBasePage';
+import ModelConfigPage from './pages/ModelConfigPage';
 
 /**
  * 演示页外壳：左侧 antd 菜单（Layout.Sider + Menu，浅色主题、可折叠）+ 右侧页面。
  *
- * 路由用 hash 实现（#/chat / #/travel / #/rag/chat / #/rag/kb），刷新后保持当前页，
+ * 路由用 hash 实现（#/chat / #/travel / #/rag/chat / #/rag/kb / #/system/model），刷新后保持当前页，
  * 不引入路由依赖。切换即卸载当前页（进行中的流式请求随之断开，后端会停止对应执行）。
  *
  * 菜单说明：Menu 的 inline 折叠态由 Sider 的 siderCollapsed 上下文驱动（inlineCollapsed
  * 显式传入以保持一致），两级分组用 SubMenu 承载——折叠后分组图标悬浮弹出子项；
  * 图标统一取 @ant-design/icons（不再用 emoji），折叠后由 item.title 提供悬浮提示。
  */
-type PageKey = 'chat' | 'travel' | 'ragChat' | 'ragKb';
+type PageKey = 'chat' | 'travel' | 'ragChat' | 'ragKb' | 'systemModel';
 
 interface PageItem {
   key: PageKey;
@@ -85,6 +87,20 @@ const MENU_GROUPS: MenuGroup[] = [
         icon: <DatabaseOutlined />,
         title: '知识库管理',
         desc: '文档列表 / 预览 / 重建 / 新增',
+      },
+    ],
+  },
+  {
+    key: 'system',
+    label: '系统管理',
+    icon: <SettingOutlined />,
+    items: [
+      {
+        key: 'systemModel',
+        hash: '#/system/model',
+        icon: <SettingOutlined />,
+        title: '模型配置',
+        desc: '供应商 / 模型维护',
       },
     ],
   },
@@ -152,6 +168,8 @@ function pageFromHash(): PageKey {
       return 'ragChat';
     case '#/rag/kb':
       return 'ragKb';
+    case '#/system/model':
+      return 'systemModel';
     default:
       return 'chat';
   }
@@ -216,6 +234,7 @@ export default function App() {
           {page === 'travel' && <TravelDemoPage />}
           {page === 'ragChat' && <RagChatPage />}
           {page === 'ragKb' && <KnowledgeBasePage />}
+          {page === 'systemModel' && <ModelConfigPage />}
           {page === 'chat' && <ChatDemoPage />}
         </main>
       </div>
