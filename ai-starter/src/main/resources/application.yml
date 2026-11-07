@@ -36,6 +36,10 @@ ai:
       # 是否开启模型请求/响应日志（读环境变量，默认 false）
       logging-enabled: ${AI_CHAT_LOGGING_ENABLED:false}
 
+    # 消息脱敏（llm-core masking）：阶段一进模型侧掩码化闭环（工具响应掩码 / 工具参数还原 / 请求消息兜底）
+    masking:
+      enabled: ${AI_CHAT_MASKING_ENABLED:false}
+
     # 会话记忆配置（llm-chat-example ChatMemoryService，基于 FileChatSession）
     session:
       # 对话记忆存储目录（相对路径，基于应用运行目录）

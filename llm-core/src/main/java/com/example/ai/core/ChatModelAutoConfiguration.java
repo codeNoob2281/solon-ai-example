@@ -1,7 +1,9 @@
 package com.example.ai.core;
 
+import com.example.ai.core.masking.MaskingChatInterceptor;
 import org.noear.solon.ai.chat.ChatConfig;
 import org.noear.solon.ai.chat.ChatModel;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -23,7 +25,8 @@ public class ChatModelAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ChatModel chatModel(ChatModelProperties properties) {
+    public ChatModel chatModel(ChatModelProperties properties,
+                               ObjectProvider<MaskingChatInterceptor> maskingInterceptorProvider) {
         ChatConfig config = new ChatConfig();
         config.setApiUrl(properties.getApiUrl());
         config.setApiKey(properties.getApiKey());
@@ -32,6 +35,8 @@ public class ChatModelAutoConfiguration {
         // 上下文窗口：用量面板的占用率基准（框架默认 0 = 未声明）
         config.setContextLength(properties.getContextLength());
         ChatModel.Builder builder = ChatModel.of(config);
+        // 消息脱敏须在日志拦截器之前（拦截链同序位按注册顺序执行，掩码先于日志打印）
+        maskingInterceptorProvider.ifAvailable(builder::defaultInterceptorAdd);
         if (properties.isLoggingEnabled()) {
             builder.defaultInterceptorAdd(new LoggingChatInterceptor());
         }

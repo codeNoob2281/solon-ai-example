@@ -1,2 +1,3 @@
 org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-com.example.ai.core.ChatModelAutoConfiguration
+com.example.ai.core.ChatModelAutoConfiguration,\
+com.example.ai.core.masking.MaskingAutoConfiguration

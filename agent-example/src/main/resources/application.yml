@@ -17,6 +17,10 @@ ai:
       context-length: ${AI_CHAT_CONTEXT_LENGTH:128000}
       logging-enabled: ${AI_CHAT_LOGGING_ENABLED:false}
 
+    # 消息脱敏（llm-core masking）：阶段一进模型侧掩码化闭环（工具响应掩码 / 工具参数还原 / 请求消息兜底）
+    masking:
+      enabled: ${AI_CHAT_MASKING_ENABLED:false}
+
 logging:
   level:
     com.example.ai: DEBUG

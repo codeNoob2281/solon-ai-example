@@ -4,6 +4,7 @@ import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.example.ai.core.ChatModelResolver;
+import com.example.ai.core.masking.MaskingChatInterceptor;
 import com.example.ai.model.entity.McModel;
 import com.example.ai.model.entity.McProvider;
 import com.example.ai.model.storage.ModelConfigStore;
@@ -40,6 +41,10 @@ public class ModelChatModelResolver implements ChatModelResolver {
 
     @Resource
     private ModelConfigStore store;
+
+    /** 消息脱敏拦截器（llm-core 提供；未启用脱敏时为空，按需装配） */
+    @Resource
+    private org.springframework.beans.factory.ObjectProvider<MaskingChatInterceptor> maskingInterceptorProvider;
 
     /** ChatModel 缓存：缓存 key → 实例 */
     private final Map<String, ChatModel> cache = new ConcurrentHashMap<>();
@@ -127,7 +132,10 @@ public class ModelChatModelResolver implements ChatModelResolver {
         }
         log.info("[Model Config] 构建 ChatModel: provider={}, model={}, apiUrl={}",
                 provider.getName(), model.getModelName(), provider.getBaseUrl());
-        return ChatModel.of(config).build();
+        ChatModel.Builder builder = ChatModel.of(config);
+        // 动态构建的 ChatModel 同样挂载脱敏拦截器（与默认 ChatModel 行为一致）
+        maskingInterceptorProvider.ifAvailable(builder::defaultInterceptorAdd);
+        return builder.build();
     }
 
     /**

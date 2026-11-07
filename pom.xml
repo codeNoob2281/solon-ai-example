@@ -38,6 +38,8 @@
         <springdoc.version>1.8.0</springdoc.version>
         <!-- JSON 序列化统一 fastjson2（依赖声明在基础模块 llm-core，随依赖传递） -->
         <fastjson2.version>2.0.62</fastjson2.version>
+        <!-- Hutool（消息脱敏工具，支持 Java 8） -->
+        <hutool.version>5.8.27</hutool.version>
     </properties>
 
     <dependencyManagement>

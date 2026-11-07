@@ -1,12 +1,15 @@
 package com.example.ai.agent.config;
 
+import com.example.ai.agent.interceptor.MaskingAgentInterceptor;
 import com.example.ai.agent.interceptor.ReActLoggingAgentInterceptor;
 import com.example.ai.agent.tool.BookingToolProvider;
 import com.example.ai.agent.tool.TravelToolProvider;
 import com.example.ai.agent.tool.WeatherQueryToolProvider;
+import com.example.ai.core.masking.MaskingChatInterceptor;
 import org.noear.solon.ai.agent.react.ReActAgent;
 import org.noear.solon.ai.agent.react.intercept.HITLInterceptor;
 import org.noear.solon.ai.chat.ChatModel;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -146,8 +149,9 @@ public class TravelAgentConfig {
                                   WeatherQueryToolProvider weatherQueryToolProvider,
                                   TravelToolProvider travelToolProvider,
                                   BookingToolProvider bookingToolProvider,
-                                  HITLInterceptor hitlInterceptor) {
-        return ReActAgent.of(chatModel)
+                                  HITLInterceptor hitlInterceptor,
+                                  ObjectProvider<MaskingChatInterceptor> maskingInterceptorProvider) {
+        ReActAgent.Builder builder = ReActAgent.of(chatModel)
                 .name("travel_agent")
                 .role("出行规划助手")
                 // 动态指令：每次推理注入当前日期（相对日期换算依据）
@@ -164,7 +168,10 @@ public class TravelAgentConfig {
                 .retryConfig(3, 1000)
                 .maxTurns(20)
                 // 多轮澄清会话：放宽历史窗口（默认 8），避免前次规划的较长消息挤掉澄清上下文
-                .sessionWindowSize(20)
-                .build();
+                .sessionWindowSize(20);
+        // 消息脱敏（启用时）：ReAct 工具链只调用 Agent 级拦截器，需在此适配接入
+        maskingInterceptorProvider.ifAvailable(
+                masking -> builder.defaultInterceptorAdd(new MaskingAgentInterceptor(masking)));
+        return builder.build();
     }
 }
