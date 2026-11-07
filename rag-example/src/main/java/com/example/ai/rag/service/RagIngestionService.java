@@ -201,6 +201,37 @@ public class RagIngestionService {
     }
 
     /**
+     * 异步入库单个源文档（知识库管理「上传文件」批量受理入口）：
+     * 校验与源文本读取在调用线程同步完成后，切分 → MySQL 落库 → 子块向量化 → Milvus 写入
+     * 整体提交到入库线程池（{@code ragIngestExecutor}，多文件天然并行，并行度受
+     * {@code ai.rag.ingestion.core-pool-size} 约束），调用线程立即返回受理结果，
+     * 前端无需等待向量化完成；文档状态经 INGESTING → INGESTED / FAILED 推进，
+     * 管理页列表轮询可见。
+     * <p>
+     * 失败语义与同步路径一致：{@code ingestOne} 内部失败时已尽力标记 FAILED，
+     * 此处仅记录日志，无调用方可通知。
+     *
+     * @param source 源文档（title 应已由调用方解析；documentId 允许为空，任务内兜底生成）
+     * @return 受理结果（documentId 已解析，chunk/child 统计为 0，任务完成后以列表状态为准）
+     */
+    public DocumentMutationResult ingestSourceAsync(SourceDocument source) {
+        final SourceDocument resolved = withResolvedDocumentId(source);
+        String documentId = resolved.getDocumentId();
+        String label = docLabel(resolved);
+        ingestExecutor.submit(() -> {
+            try {
+                ingestOne(resolved);
+            } catch (IOException | RuntimeException e) {
+                // 失败已由 ingestOne 标记 FAILED，这里仅留痕（受理方拿不到结果）
+                log.warn("[RAG Ingest] async ingest failed: documentId={} label={} cause={}",
+                        documentId, label, e.getMessage(), e);
+            }
+        });
+        log.info("[RAG Ingest] async ingest accepted: documentId={} label={}", documentId, label);
+        return new DocumentMutationResult(documentId, 0, 0, 0);
+    }
+
+    /**
      * 重建索引：依据 {@code kb_document.content} 重新执行切分流水线
      * （章节切分 → 父块 token 切分 → MySQL 父块行替换 → 子块向量化写入 Milvus）。
      * <p>

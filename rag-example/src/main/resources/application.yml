@@ -5,11 +5,11 @@ spring:
   application:
     name: rag-example
 
-  # 文件上传上限（知识库管理「上传文件」入口；服务端另有 5MB 白名单校验，此处留余量）
+  # 文件上传上限（知识库管理「上传文件」入口，支持多文件；服务端另有单文件 5MB 白名单校验，此处留余量）
   servlet:
     multipart:
       max-file-size: 10MB
-      max-request-size: 10MB
+      max-request-size: 100MB
 
   # MySQL 数据源：知识库文档表（kb_document）+ 父块表（kb_chunk），MyBatis-Plus 持久层
   # URL 默认带 createDatabaseIfNotExist=true：库不存在自动创建；
@@ -81,6 +81,9 @@ ai:
       vector-weight: ${RAG_SEARCH_VECTOR_WEIGHT:0.6}
       keyword-weight: ${RAG_SEARCH_KEYWORD_WEIGHT:0.4}
       candidate-multiplier: ${RAG_SEARCH_CANDIDATE_MULTIPLIER:3}
+      # 检索门控：用户消息长度区间（字符数，含边界），区间外跳过检索、按系统提示词兜底回答
+      min-question-chars: ${RAG_SEARCH_MIN_QUESTION_CHARS:6}
+      max-question-chars: ${RAG_SEARCH_MAX_QUESTION_CHARS:1200}
 
     # 文档并行入库线程池：单线程处理最小维度 = 单个文档
     # （父子切分 → MySQL 落库 → 子块向量化 → 写入 Milvus 一个任务内完成）

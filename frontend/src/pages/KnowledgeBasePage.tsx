@@ -85,6 +85,14 @@ interface DocumentMutationResult {
   elapsedMs: number;
 }
 
+interface KbBatchUploadResult {
+  total: number;
+  accepted: number;
+  failed: number;
+  acceptedItems: { filename: string; documentId: string }[];
+  failures: { filename: string; message: string }[];
+}
+
 // ------------------------------------------------------------
 // 常量
 
@@ -180,8 +188,8 @@ function KnowledgeBaseContent() {
   const [pasteTitle, setPasteTitle] = useState('');
   const [pasteFormat, setPasteFormat] = useState<'markdown' | 'text'>('markdown');
   const [pasteContent, setPasteContent] = useState('');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [uploadPanelKey, setUploadPanelKey] = useState(0); // Dragger 重置键（关闭弹窗后清空内部文件列表）
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -356,7 +364,7 @@ function KnowledgeBaseContent() {
   };
 
   const submitUpload = async () => {
-    if (!uploadFile) {
+    if (uploadFiles.length === 0) {
       setSubmitError('请选择文件');
       return;
     }
@@ -364,16 +372,22 @@ function KnowledgeBaseContent() {
     setSubmitError(null);
     try {
       const form = new FormData();
-      form.append('file', uploadFile);
-      if (uploadTitle.trim()) {
-        form.append('title', uploadTitle.trim());
+      for (const file of uploadFiles) {
+        form.append('file', file);
       }
-      const result = await postForm<DocumentMutationResult>('/api/rag/kb/documents/upload', form);
+      // 受理语义：后端同步校验后即转后台入库并返回，不再等待切分/向量化完成
+      const result = await postForm<KbBatchUploadResult>('/api/rag/kb/documents/upload', form);
       closeAddDialog();
       await refresh();
-      message.success(
-        `入库完成：父块 ${formatNumber(result.chunkCount)} · 子块 ${formatNumber(result.childChunkCount)}`,
-      );
+      if (result.failed === 0) {
+        message.success(`已受理 ${formatNumber(result.accepted)} 份文档，后台入库中（列表可见状态）`);
+      } else {
+        // 校验失败的文件：列表外提示（通过校验的部分已转后台入库）
+        message.warning(
+          `已受理 ${formatNumber(result.accepted)} 份，${formatNumber(result.failed)} 份未通过校验：` +
+          result.failures.map(item => `${item.filename || '（未知文件）'}（${item.message}）`).join('；'),
+        );
+      }
     } catch (error) {
       setSubmitError(errorMessage(error));
     } finally {
@@ -386,8 +400,8 @@ function KnowledgeBaseContent() {
     setPasteTitle('');
     setPasteFormat('markdown');
     setPasteContent('');
-    setUploadFile(null);
-    setUploadTitle('');
+    setUploadFiles([]);
+    setUploadPanelKey(key => key + 1); // 重置 Dragger 内部文件列表（非受控）
     setSubmitError(null);
   };
 
@@ -483,7 +497,7 @@ function KnowledgeBaseContent() {
           <header className="page-header">
             <div>
               <h1>知识库管理</h1>
-              <p className="chat-sub">一个文件 / 一次粘贴 = 一条文档记录 · 父块存 MySQL · 子块存 Milvus</p>
+              <p className="chat-sub">一次上传可含多份文件 · 父块存 MySQL · 子块存 Milvus</p>
             </div>
             <Button type="primary" onClick={() => setAddOpen(true)}>
               ＋ 新增文档
@@ -630,14 +644,15 @@ function KnowledgeBaseContent() {
               disabled:
                 submitting ||
                 (addMode === 'paste' && !pasteContent.trim()) ||
-                (addMode === 'upload' && !uploadFile),
+                (addMode === 'upload' && uploadFiles.length === 0),
             }}
             onOk={() => (addMode === 'paste' ? submitPaste() : submitUpload())}
             onCancel={closeAddDialog}
             width={640}
           >
             <Typography.Paragraph type="secondary">
-              粘贴内容或上传文件入库；同步执行切分与向量化，大文件可能需要等待。
+              粘贴内容或上传文件入库（上传支持一次多份）；上传只做校验，切分与向量化在后台执行，
+              文档状态可在列表中查看（处理中 → 已入库/失败）。
             </Typography.Paragraph>
             <Tabs
               activeKey={addMode}
@@ -688,45 +703,31 @@ function KnowledgeBaseContent() {
                   children: (
                     <div className="kb-add-form">
                       <Upload.Dragger
+                        key={uploadPanelKey}
                         accept={ACCEPT_EXTENSIONS}
-                        maxCount={1}
-                        beforeUpload={file => {
-                          if (file.size > UPLOAD_MAX_BYTES) {
-                            message.error('文件大小不能超过 5MB');
+                        multiple
+                        maxCount={20}
+                        beforeUpload={(_file, fileList) => {
+                          // 多文件共用一次 beforeUpload 判定：任一文件超限则整批拒收（beforeUpload 以首个文件回调一次）
+                          if (fileList.some(item => item.size > UPLOAD_MAX_BYTES)) {
+                            message.error('存在超过 5MB 的文件，请调整后重新选择');
                             return Upload.LIST_IGNORE;
                           }
-                          setUploadFile(file);
+                          setUploadFiles(fileList);
                           return false;
                         }}
-                        onChange={({ file }) => {
-                          // 受控 fileList 需配 onChange：同步移除与文件选择状态
-                          if (file.status === 'removed') {
-                            setUploadFile(null);
-                          } else if (file.originFileObj) {
-                            setUploadFile(file.originFileObj);
-                          }
+                        onRemove={file => {
+                          setUploadFiles(prev => prev.filter(item => item.name !== file.name || item.size !== file.size));
                         }}
-                        onRemove={() => setUploadFile(null)}
-                        fileList={
-                          uploadFile
-                            ? [{ uid: 'kb-upload-file', name: uploadFile.name, size: uploadFile.size, status: 'done' }]
-                            : []
-                        }
                       >
                         <p className="ant-upload-drag-icon">
                           <InboxOutlined />
                         </p>
-                        <p className="ant-upload-text">点击或拖拽文件到此处上传</p>
-                        <p className="ant-upload-hint">支持 {ACCEPT_EXTENSIONS}，≤ 5MB</p>
+                        <p className="ant-upload-text">点击或拖拽文件到此处上传（支持多选）</p>
+                        <p className="ant-upload-hint">
+                          支持 {ACCEPT_EXTENSIONS}，单个 ≤ 5MB，一次最多 20 份；提交后后台入库，无需等待
+                        </p>
                       </Upload.Dragger>
-                      <div className="kb-add-field">
-                        <span className="kb-field-label">标题覆盖（可选）</span>
-                        <Input
-                          value={uploadTitle}
-                          onChange={event => setUploadTitle(event.target.value)}
-                          placeholder="缺省取文档内一级标题 → 文件名去后缀"
-                        />
-                      </div>
                     </div>
                   ),
                 },

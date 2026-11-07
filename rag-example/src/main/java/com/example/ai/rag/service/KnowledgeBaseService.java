@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.ai.rag.config.RagProperties;
 import com.example.ai.rag.dto.DocumentMutationResult;
+import com.example.ai.rag.dto.KbBatchUploadResult;
 import com.example.ai.rag.dto.KbChunkItem;
 import com.example.ai.rag.dto.KbChunkListResponse;
 import com.example.ai.rag.dto.KbDeleteResult;
@@ -359,13 +360,47 @@ public class KnowledgeBaseService {
     }
 
     /**
-     * 上传文件新增（multipart）：后缀白名单 + 5MB 上限；一个文件 = 一条文档记录。
-     * 同名文件不做去重拦截（示例级：允许重复上传，产生不同 id 的两条记录）。
+     * 批量上传文件新增（multipart）：调用线程内逐文件做同步校验（非空/后缀白名单/5MB 上限）
+     * 并读取源文本，通过校验的文件逐个提交异步入库（{@link RagIngestionService#ingestSourceAsync}，
+     * 切分与向量化在线程池后台执行）后立即返回受理结果；校验失败计入失败明细，不阻断其余文件。
      *
-     * @param file  上传文件（.md/.markdown/.txt/.html/.htm）
-     * @param title 标题覆盖（可选；缺省取文档内一级标题 → 文件名去后缀）
+     * @param files 上传文件列表（每个 .md/.markdown/.txt/.html/.htm，各自 ≤ 5MB）
+     * @return 受理结果（accepted = 已转后台入库数，failures = 校验失败明细；total = accepted + failed）
      */
-    public DocumentMutationResult upload(MultipartFile file, String title) throws IOException {
+    public KbBatchUploadResult uploadBatch(List<MultipartFile> files) {
+        KbBatchUploadResult batch = new KbBatchUploadResult();
+        batch.setTotal(files == null ? 0 : files.size());
+        if (files == null) {
+            return batch;
+        }
+        for (MultipartFile file : files) {
+            String filename = basename(file == null ? null : file.getOriginalFilename());
+            try {
+                SourceDocument source = buildUploadSource(file, null);
+                DocumentMutationResult accepted = ingestionService.ingestSourceAsync(source);
+                batch.addAccepted(filename, accepted.getDocumentId());
+                log.info("[KB] batch upload accepted: filename={} documentId={}", filename, accepted.getDocumentId());
+            } catch (IOException | RuntimeException e) {
+                // 单文件校验失败不阻断：记入失败明细继续处理剩余文件
+                String reason = e.getMessage() == null || e.getMessage().trim().isEmpty()
+                        ? e.getClass().getSimpleName() : e.getMessage();
+                batch.addFailure(filename, reason);
+                log.warn("[KB] batch upload rejected: filename={} cause={}", filename, reason);
+            }
+        }
+        log.info("[KB] batch upload finished: total={} accepted={} failed={}",
+                batch.getTotal(), batch.getAccepted(), batch.getFailed());
+        return batch;
+    }
+
+    /**
+     * 上传文件 → SourceDocument（同步校验 + 读取，不含入库）：
+     * 非空 + 后缀白名单 + 5MB 上限，读取 UTF-8 文本后组装源文档（含标题解析）
+     *
+     * @param file  上传文件
+     * @param title 标题覆盖（可选；批量模式传 null，按文档内一级标题/文件名解析）
+     */
+    private SourceDocument buildUploadSource(MultipartFile file, String title) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("上传文件不能为空");
         }
@@ -376,14 +411,9 @@ public class KnowledgeBaseService {
         }
 
         String rawText = new String(file.getBytes(), StandardCharsets.UTF_8);
-        SourceDocument source = new SourceDocument(null, rawText,
+        return new SourceDocument(null, rawText,
                 resolveTitle(docType, rawText, title, stripExtension(basename(originalFilename))),
                 originalFilename, originalFilename, "file", docType);
-        DocumentMutationResult result = ingestionService.ingestSource(source);
-        log.info("[KB] document uploaded: documentId={} filename={} chunks={} children={} elapsed={}ms",
-                result.getDocumentId(), originalFilename, result.getChunkCount(),
-                result.getChildChunkCount(), result.getElapsedMs());
-        return result;
     }
 
     /**

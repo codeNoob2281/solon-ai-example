@@ -28,7 +28,8 @@ import java.util.Map;
  * 链路（照搬 AgentChatController 模式，仅编排内容不同）：
  * {@code @ai-sdk/react useChat}（DefaultChatTransport，POST 消息历史）
  * → 本端点解析最后一条用户消息 → {@link RagChatService#startStream}
- * （检索 → 来源解析 → ChatModel 流式生成）→ {@link AiSdkStreamWrapper#toAiSdkStream}
+ * （检索门控：消息长度区间外跳过检索 → 检索 → 来源解析 → ChatModel 流式生成）→
+ * {@link AiSdkStreamWrapper#toAiSdkStream}
  * 包装为 AI SDK 协议事件（start → metadata(sources) → reasoning/text 增量 → finish → [DONE]）
  * → SSE 响应流式回传，前端逐字渲染 Markdown。
  * <p>
@@ -43,7 +44,9 @@ import java.util.Map;
  *       前端直接读 {@code message.metadata.sources}，无需解析自定义 data part；</li>
  *   <li>THINKING_* 事件（推理模型如 deepseek-r1/qwen3 thinking 产生）自动映射为
  *       reasoning part；非思考模型无该 part，前端 Reasoning 组件自然不渲染；</li>
- *   <li>无会话/记忆：RAG 问答每问独立检索，前端消息历史仅作 UI 展示。</li>
+ *   <li>无会话/记忆：RAG 问答每问独立检索，前端消息历史仅作 UI 展示；</li>
+ *   <li>检索门控：用户消息长度不在 [min/max-question-chars] 区间内（默认 6~1200）时
+ *       跳过知识库检索（hits 为空、sources 为空列表），模型按系统提示词兜底回答。</li>
  * </ul>
  */
 @Slf4j

@@ -1,6 +1,7 @@
 package com.example.ai.rag.controller;
 
 import com.example.ai.rag.dto.DocumentMutationResult;
+import com.example.ai.rag.dto.KbBatchUploadResult;
 import com.example.ai.rag.dto.KbChunkListResponse;
 import com.example.ai.rag.dto.KbDeleteResult;
 import com.example.ai.rag.dto.KbDocumentPage;
@@ -37,7 +38,8 @@ import java.util.Map;
  * GET    /api/rag/kb/documents/{id}/chunks   文档块列表（预览，按 chunk_index 升序全量）
  * POST   /api/rag/kb/documents/{id}/reindex  重建索引（依据 kb_document.content 重新切分向量化）
  * DELETE /api/rag/kb/documents/{id}          删除文档（Milvus 子块尽力而为，MySQL 事务删除）
- * POST   /api/rag/kb/documents/upload        上传文件新增（multipart，.md/.markdown/.txt/.html/.htm，≤5MB）
+ * POST   /api/rag/kb/documents/upload        上传文件新增（multipart，file 可重复 = 多文件，
+ *                                            各 ≤5MB；同步校验后异步入库，立即返回受理结果）
  * POST   /api/rag/kb/documents/paste         粘贴内容新增（JSON，format=markdown/text，≤2MB 字符）
  * </pre>
  * <p>
@@ -124,21 +126,34 @@ public class KnowledgeBaseController {
     }
 
     /**
-     * 上传文件新增（multipart/form-data）
+     * 上传文件新增（multipart/form-data，支持一次多文件）：
+     * 同步校验（非空/后缀白名单/5MB）后转后台异步入库，立即返回受理结果
      *
-     * @param file  必填，后缀白名单 .md/.markdown/.txt/.html/.htm，≤ 5MB
-     * @param title 可选，覆盖标题解析
+     * @param files 必填可重复（一个或多个），后缀白名单 .md/.markdown/.txt/.html/.htm，各自 ≤ 5MB；
+     *              校验失败计入失败明细，不阻断其余文件
      */
-    @Operation(summary = "上传文件新增",
-            description = "后缀白名单 .md/.markdown/.txt/.html/.htm（否则 400），≤ 5MB；"
-                    + "title 可选覆盖标题解析；同步入库，返回文档 id 与块数统计")
+    @Operation(summary = "上传文件新增（支持多文件，异步入库）",
+            description = "file 字段可重复（一个或多个）；后缀白名单 .md/.markdown/.txt/.html/.htm，每个 ≤ 5MB；"
+                    + "通过校验的文件提交后台线程池入库（切分/向量化异步执行，文档状态 INGESTING → INGESTED/FAILED），"
+                    + "立即返回受理结果；校验失败的文件计入 failures 明细（不阻断其余文件）")
     @PostMapping(value = "/documents/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public DocumentMutationResult upload(
-            @Parameter(description = "上传文件", required = true)
-            @RequestParam("file") MultipartFile file,
-            @Parameter(description = "标题覆盖（可选）")
-            @RequestParam(value = "title", required = false) String title) throws IOException {
-        return knowledgeBaseService.upload(file, title);
+    public KbBatchUploadResult upload(
+            @Parameter(description = "上传文件（可重复传入多个）", required = true)
+            @RequestParam("file") List<MultipartFile> files) {
+        if (files == null || files.isEmpty()) {
+            throw new IllegalArgumentException("请至少选择一个文件");
+        }
+        boolean allEmpty = true;
+        for (MultipartFile file : files) {
+            if (file != null && !file.isEmpty()) {
+                allEmpty = false;
+                break;
+            }
+        }
+        if (allEmpty) {
+            throw new IllegalArgumentException("请至少选择一个非空文件");
+        }
+        return knowledgeBaseService.uploadBatch(files);
     }
 
     /**

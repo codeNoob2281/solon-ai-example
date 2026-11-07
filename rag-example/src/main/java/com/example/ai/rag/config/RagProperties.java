@@ -134,6 +134,18 @@ public class RagProperties {
          * RRF 需要更大的候选池做跨来源重排，默认 3
          */
         private int candidateMultiplier = 3;
+
+        /**
+         * 检索门控：用户消息长度下限（字符数，含）。短于该值的消息不做知识库检索，
+         * 直接交给模型按系统提示词兜底回答（寒暄/过短提问无需检索），默认 6
+         */
+        private int minQuestionChars = 6;
+
+        /**
+         * 检索门控：用户消息长度上限（字符数，含）。超过该值的长文本（如粘贴整篇文章）
+         * 不做知识库检索，避免嵌入与检索开销被无效输入浪费，默认 1200
+         */
+        private int maxQuestionChars = 1200;
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.example.ai.rag.service;
 
+import com.example.ai.rag.config.RagProperties;
 import com.example.ai.rag.dto.KbSourceItem;
 import com.example.ai.rag.dto.SearchHit;
 import com.example.ai.rag.entity.KbDocument;
@@ -15,45 +16,47 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * RAG 流式问答服务（编排层）
  * <p>
- * 链路：策略检索（每问独立检索，无会话记忆）→ 来源解析（documentId 去重 → 批查
+ * 链路：检索门控（消息长度区间 [min-question-chars, max-question-chars]，区间外跳过检索，
+ * 每问独立检索、无会话记忆）→ 策略检索 → 来源解析（documentId 去重 → 批查
  * kb_document → label=basename(source)，回退 title，再兜底"未命名文档"）→
  * ChatModel 流式生成（{@code Flux<ChatEvent>}，提示词与同步问答共用
  * {@link RagPromptFactory}）。
  * <p>
  * 检索发生在模型流开始之前：来源列表在流起始即确定，由控制器随 AI SDK 协议的
- * metadata part 一次下发（前端 message.metadata.sources）；检索为空时
- * {@code sources = []}，提示词中知识库结果为空串，模型按系统提示词兜底回答。
+ * metadata part 一次下发（前端 message.metadata.sources）；检索为空（含被门控
+ * 跳过）时 {@code sources = []}，提示词中知识库结果为空串，模型按系统提示词兜底回答。
  */
 @Slf4j
 @Service
 public class RagChatService {
 
-    /** 检索条数上限（与前端展示的来源数上限一致；相似度阈值用策略默认 0.4） */
+    /**
+     * 检索条数上限（与前端展示的来源数上限一致；相似度阈值用策略默认 0.4）
+     */
     private static final int RETRIEVAL_LIMIT = 4;
 
     private final RagRetrievalStrategy retrievalStrategy;
     private final ChatModel chatModel;
     private final RagPromptFactory promptFactory;
     private final KnowledgeBaseStore knowledgeBaseStore;
+    private final RagProperties.Search searchConfig;
 
     public RagChatService(RagRetrievalStrategyResolver retrievalResolver,
                           ChatModel chatModel,
                           RagPromptFactory promptFactory,
-                          KnowledgeBaseStore knowledgeBaseStore) {
+                          KnowledgeBaseStore knowledgeBaseStore,
+                          RagProperties ragProperties) {
         // 启动时按配置选定策略（配置错误在此快速失败）
         this.retrievalStrategy = retrievalResolver.resolve();
         this.chatModel = chatModel;
         this.promptFactory = promptFactory;
         this.knowledgeBaseStore = knowledgeBaseStore;
+        this.searchConfig = ragProperties.getSearch();
     }
 
     /**
@@ -65,10 +68,19 @@ public class RagChatService {
      * @param question 用户问题（最后一条用户消息文本）
      */
     public RagChatStream startStream(String question) throws IOException {
-        List<SearchHit> hits = retrievalStrategy.retrieve(question, RETRIEVAL_LIMIT, null);
+        boolean gated = !shouldRetrieve(question);
+        if (gated) {
+            // 门控跳过：单独打印拦截原因（消息长度与配置区间），便于观察门控命中情况
+            log.info("[RAG Chat] 跳过知识库检索: length={} 不在门控区间 [{}, {}] 内, question={}",
+                    question == null ? 0 : question.length(),
+                    searchConfig.getMinQuestionChars(), searchConfig.getMaxQuestionChars(),
+                    abbreviate(question, 80));
+        }
+        List<SearchHit> hits = gated ? Collections.emptyList()
+                : retrievalStrategy.retrieve(question, RETRIEVAL_LIMIT, null);
         List<KbSourceItem> sources = resolveSources(hits);
-        log.info("[RAG Chat] question={} strategy={} hits={} sources={}",
-                abbreviate(question, 80), retrievalStrategy.name(), hits.size(), sources.size());
+        log.info("[RAG Chat] question={} strategy={} hits={} sources={} gated={}",
+                abbreviate(question, 80), retrievalStrategy.name(), hits.size(), sources.size(), gated);
 
         ChatMessage user = promptFactory.renderUserMessage(question, hits);
         // 系统提示词走 systemPrompt()，由框架统一组装为 System Message
@@ -76,6 +88,17 @@ public class RagChatService {
                 .systemPrompt(promptFactory.systemPrompt())
                 .stream();
         return new RagChatStream(events, sources);
+    }
+
+    /**
+     * 检索门控：用户消息长度在 [min-question-chars, max-question-chars] 区间内才检索。
+     * 区间外（寒暄/过短提问、粘贴长文等）跳过检索，知识库结果为空串，
+     * 模型按系统提示词兜底回答（区间可经 {@code ai.rag.search.min/max-question-chars} 配置）
+     */
+    private boolean shouldRetrieve(String question) {
+        int length = question == null ? 0 : question.length();
+        return length >= searchConfig.getMinQuestionChars()
+                && length <= searchConfig.getMaxQuestionChars();
     }
 
     /**
