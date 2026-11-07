@@ -1,5 +1,6 @@
 package com.example.ai.core;
 
+import com.example.ai.core.masking.LogMasker;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.AiUsage;
 import org.noear.solon.ai.chat.ChatRequest;
@@ -43,7 +44,7 @@ public class LoggingChatInterceptor implements ChatInterceptor {
         long elapsed = System.currentTimeMillis() - start;
         log.info("[AI Response] model={} elapsed={}ms", req.getConfig().getNameOrModel(), elapsed);
         if (resp != null) {
-            log.info("  content={}", resp.getContent());
+            log.info("  content={}", LogMasker.mask(resp.getContent()));
             logUsage(resp.getUsage());
         }
 
@@ -90,14 +91,14 @@ public class LoggingChatInterceptor implements ChatInterceptor {
                             idx,
                             event.getType(),
                             req.getConfig().getNameOrModel(),
-                            event.hasText() ? event.getText() : "");
+                            event.hasText() ? LogMasker.mask(event.getText()) : "");
                 })
                 .doOnError(err -> {
                     long elapsed = System.currentTimeMillis() - start;
                     log.error("[AI Stream Error] model={} elapsed={}ms error={}",
                             req.getConfig().getNameOrModel(),
                             elapsed,
-                            err.getMessage(), err);
+                            LogMasker.mask(err.getMessage()), err);
                 })
                 .doOnComplete(() -> {
                     long elapsed = System.currentTimeMillis() - start;
@@ -112,16 +113,17 @@ public class LoggingChatInterceptor implements ChatInterceptor {
     }
 
     /**
-     * 打印请求体 JSON（API 密钥自动脱敏）
+     * 打印请求体 JSON（敏感信息脱敏：先按内置规则掩码，再兜底遮蔽 api_key / authorization 头）
      */
     private void logRequestJson(ChatRequest req) {
         try {
             String json = req.toRequestData();
-            String safe = json.replaceAll("(\"api_key\"\\s*:\\s*\")([^\"]+)(\")", "$1***$3")
+            String safe = LogMasker.mask(json)
+                    .replaceAll("(\"api_key\"\\s*:\\s*\")([^\"]+)(\")", "$1***$3")
                     .replaceAll("(\"authorization\"\\s*:\\s*\")([^\"]+)(\")", "$1***$3");
             log.debug("  request={}", safe);
         } catch (Exception e) {
-            log.warn("  request=<serialize failed: {}>", e.getMessage());
+            log.warn("  request=<serialize failed: {}>", LogMasker.mask(e.getMessage()));
         }
     }
 

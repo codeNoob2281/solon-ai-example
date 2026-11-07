@@ -1,5 +1,6 @@
 package com.example.ai.agent.interceptor;
 
+import com.example.ai.core.masking.LogMasker;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.agent.react.AbsReActInterceptor;
 import org.noear.solon.ai.agent.react.ReActTrace;
@@ -19,7 +20,8 @@ public class ReActLoggingAgentInterceptor extends AbsReActInterceptor {
     public void onAgentStart(ReActTrace trace) {
         log.info("[AgentLogger] 开始执行: agent={}, prompt={}",
                 trace.getAgentName(),
-                trace.getOriginalPrompt() == null ? null : trace.getOriginalPrompt().getUserContent());
+                trace.getOriginalPrompt() == null ? null
+                        : LogMasker.mask(trace.getOriginalPrompt().getUserContent()));
     }
 
     @Override
@@ -27,7 +29,10 @@ public class ReActLoggingAgentInterceptor extends AbsReActInterceptor {
                               ChatMessage observation, Throwable error, long durationMs) {
         if (error != null) {
             log.warn("[AgentLogger] 工具调用失败: name={}, args={}, duration={}ms, error={}",
-                    toolExchanger.getToolName(), toolExchanger.getArgs(), durationMs, error.getMessage());
+                    toolExchanger.getToolName(),
+                    LogMasker.mask(String.valueOf(toolExchanger.getArgs())),
+                    durationMs,
+                    LogMasker.mask(error.getMessage()));
         } else {
             log.info("[AgentLogger] 工具调用完成: name={}, duration={}ms",
                     toolExchanger.getToolName(), durationMs);
