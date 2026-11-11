@@ -22,8 +22,8 @@ import java.util.Map;
  * <ul>
  *   <li>RRF_K 固定为 60（标准取值，避免单一来源头名过度主导）；权重取自
  *       {@code ai.rag.search.vector-weight / keyword-weight}（默认 0.6 / 0.4，原始权重不归一化）；</li>
- *   <li>两来源各自检索 {@code limit × candidate-multiplier}（默认 3 倍）条候选，
- *       融合排序后取相关度前 limit；融合分数统一 ROUND 保留 4 位小数；</li>
+ *   <li>两来源各自检索 topK（= limit）条候选，融合排序后取相关度前 limit；
+ *       融合分数统一 ROUND 保留 4 位小数；</li>
  *   <li>两来源均返回父块级命中（父块 id 对齐），融合时优先保留向量侧命中对象
  *       （含子块级元数据，来源展示更完整）；</li>
  *   <li>{@code similarityThreshold} 原样透传给两个子策略
@@ -74,12 +74,10 @@ public class HybridRrfRetrievalStrategy implements RagRetrievalStrategy {
         RagProperties.Search cfg = properties.getSearch();
         double vectorWeight = cfg.getVectorWeight();
         double keywordWeight = cfg.getKeywordWeight();
-        int multiplier = cfg.getCandidateMultiplier() > 0 ? cfg.getCandidateMultiplier() : 3;
         int effectiveLimit = limit > 0 ? limit : DEFAULT_LIMIT;
-        int candidateLimit = effectiveLimit * multiplier;
 
-        List<SearchHit> vectorHits = safeRetrieve(vectorStrategy, "vector", query, candidateLimit, similarityThreshold);
-        List<SearchHit> keywordHits = safeRetrieve(keywordStrategy, "keyword", query, candidateLimit, similarityThreshold);
+        List<SearchHit> vectorHits = safeRetrieve(vectorStrategy, "vector", query, effectiveLimit, similarityThreshold);
+        List<SearchHit> keywordHits = safeRetrieve(keywordStrategy, "keyword", query, effectiveLimit, similarityThreshold);
 
         List<SearchHit> fused = fuse(vectorHits, vectorWeight, keywordHits, keywordWeight);
         List<SearchHit> result = fused.size() > effectiveLimit ? fused.subList(0, effectiveLimit) : fused;

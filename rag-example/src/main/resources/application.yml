@@ -77,13 +77,32 @@ ai:
     #       hybrid-rrf（向量 + 关键词 RRF 加权融合）；未知标识启动时快速失败
     search:
       strategy: ${RAG_SEARCH_STRATEGY:parent-child}
-      # 混合检索（hybrid-rrf）参数：向量/关键词 RRF 加权权重 + 各来源候选条数倍数（limit × 倍数）
+      # topK：召回阶段保留的结果数（送入重排序的候选条数），默认 20
+      top-k: ${RAG_SEARCH_TOP_K:20}
+      # topN：重排序后最终保留的结果数（进入 LLM 上下文的父块数 / 前端展示来源数），默认 4
+      top-n: ${RAG_SEARCH_TOP_N:4}
+      # 混合检索（hybrid-rrf）参数：向量/关键词 RRF 加权权重（各来源候选数 = topK）
       vector-weight: ${RAG_SEARCH_VECTOR_WEIGHT:0.6}
       keyword-weight: ${RAG_SEARCH_KEYWORD_WEIGHT:0.4}
-      candidate-multiplier: ${RAG_SEARCH_CANDIDATE_MULTIPLIER:3}
       # 检索门控：用户消息长度区间（字符数，含边界），区间外跳过检索、按系统提示词兜底回答
       min-question-chars: ${RAG_SEARCH_MIN_QUESTION_CHARS:6}
       max-question-chars: ${RAG_SEARCH_MAX_QUESTION_CHARS:1200}
+
+    # 重排序：检索召回 topK 后调用重排序模型精排，最终保留 topN；
+    # 未启用（enabled=false）、api-url/model 未配置或服务不可用时，兜底为「前 topN 截断」
+    rerank:
+      enabled: ${RAG_RERANK_ENABLED:true}
+      strategy: ${RAG_RERANK_STRATEGY:model}
+      # OpenAI 兼容完整地址（如 https://api.siliconflow.cn/v1/rerank）；dashscope 见 provider/standard
+      api-url: ${RAG_RERANK_API_URL:}
+      api-key: ${RAG_RERANK_API_KEY:}
+      provider: ${RAG_RERANK_PROVIDER:}
+      standard: ${RAG_RERANK_STANDARD:}
+      model: ${RAG_RERANK_MODEL:}
+      # 自适应裁剪（仅 model 策略）：低于 score-threshold 丢弃；相邻分差 > score-gap 截断后续；至少保留 1 条
+      score-threshold: ${RAG_RERANK_SCORE_THRESHOLD:0.4}
+      score-gap: ${RAG_RERANK_SCORE_GAP:0.2}
+      timeout-seconds: ${RAG_RERANK_TIMEOUT_SECONDS:30}
 
     # 文档并行入库线程池：单线程处理最小维度 = 单个文档
     # （父子切分 → MySQL 落库 → 子块向量化 → 写入 Milvus 一个任务内完成）

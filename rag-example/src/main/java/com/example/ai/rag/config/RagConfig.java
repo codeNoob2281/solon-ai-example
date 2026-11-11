@@ -7,6 +7,8 @@ import org.noear.solon.ai.embedding.EmbeddingConfig;
 import org.noear.solon.ai.embedding.EmbeddingModel;
 import org.noear.solon.ai.rag.DocumentSplitter;
 import org.noear.solon.ai.rag.splitter.TokenSizeTextSplitter;
+import org.noear.solon.ai.reranking.RerankingConfig;
+import org.noear.solon.ai.reranking.RerankingModel;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,6 +29,7 @@ import java.util.concurrent.TimeUnit;
  * 核心组件：
  * <pre>{@code
  * EmbeddingModel        = RetryableEmbeddingModel（超时/瞬断自动重试）
+ * RerankingModel        = 重排序模型（ai.rag.rerank.*，未启用时不初始化）
  * ConnectConfig         = ConnectConfig.builder().uri(...).build()
  * MilvusClientV2        = new MilvusClientV2(connectConfig)
  * MilvusChildRepository = 子块向量仓库（自建集合：parent_id 独立字段）
@@ -76,6 +79,34 @@ public class RagConfig {
         }
 
         return new RetryableEmbeddingModel(config, e.getRetryMaxAttempts(), e.getRetryBackoffMillis());
+    }
+
+    /**
+     * 重排序模型：根据 ai.rag.rerank.* 构建（Solon AI {@link RerankingModel}）。
+     * <p>
+     * 方言自动匹配（RerankingDialectManager 按类名注册）：
+     * <ul>
+     *   <li>standard/provider = dashscope 或 apiUrl 为 DashScope 前缀 → DashscopeRerankingDialect；</li>
+     *   <li>其余 → 默认 OpenaiRerankingDialect（OpenAI 兼容 /v1/rerank）。</li>
+     * </ul>
+     * 标记为 {@link Lazy}：应用启动不依赖重排服务配置/在线，未启用重排时不会初始化
+     * （构造仅选方言，不发起网络请求）。
+     */
+    @Bean
+    @Lazy
+    public RerankingModel ragRerankingModel(RagProperties props) {
+        RagProperties.Rerank r = props.getRerank();
+
+        RerankingConfig config = new RerankingConfig();
+        config.setApiUrl(r.getApiUrl());
+        config.setApiKey(r.getApiKey());
+        config.setProvider(r.getProvider());
+        config.setStandard(r.getStandard());
+        config.setModel(r.getModel());
+        if (r.getTimeoutSeconds() > 0) {
+            config.setTimeout(Duration.ofSeconds(r.getTimeoutSeconds()));
+        }
+        return new RerankingModel(config);
     }
 
     /**

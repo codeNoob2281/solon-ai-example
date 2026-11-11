@@ -408,16 +408,28 @@ curl -N -X POST http://localhost:8080/api/rag/chat/stream \
 ### 检索流程说明（Small-to-Big）
 
 > **检索策略可配置**：检索实现抽离为策略接口 `RagRetrievalStrategy`（`com.example.ai.rag.retrieval` 包），
-> `RagSearchService` 只做编排（策略检索 → 提示词组装 → LLM 生成）。
+> `RagSearchService` 只做编排（策略检索（召回 topK）→ 重排序（保留 topN）→ 提示词组装 → LLM 生成）。
 > 通过 `RAG_SEARCH_STRATEGY`（`ai.rag.search.strategy`）选择实现（标识 = 策略的 `name()`），
 > 内置 `parent-child`（默认）/ `mysql-fulltext` / `hybrid-rrf`；扩展新策略只需实现接口并注册为 Spring Bean。
 > 配置了未知标识会在启动时快速失败并列出可用策略。
 
 以默认策略 `parent-child` 为例：
 
-1. **子块检索**：`MilvusChildRepository.search()` 按「相似度阈值 + limit」向量检索子块（`SimilarityUtil.refilter` 阈值二次过滤）
+1. **子块检索**：`MilvusChildRepository.search()` 按「相似度阈值 + topK」向量检索子块（`SimilarityUtil.refilter` 阈值二次过滤）
 2. **父块映射**：子块按 `metadata.parent_id` 分组（同父块取最高子块相似度），MySQL `selectBatchIds` 批量取父块行（父块行缺失时 WARN 跳过）
-3. **上下文组装**：父块内容按最高子块相似度倒序进入 LLM 上下文（`/rag/search` 返回映射后的父块，`/rag/ask` 用于问答）
+3. **上下文组装**：重排序后保留 topN，父块内容按相关度倒序进入 LLM 上下文（`/rag/search` 返回映射后的父块，`/rag/ask` 用于问答）
+
+#### 重排序阶段（可选）
+
+检索召回 `RAG_SEARCH_TOP_K`（默认 20）条后，经重排序策略 `RagRerankStrategy`（`com.example.ai.rag.rerank` 包）
+精排并保留 `RAG_SEARCH_TOP_N`（默认 4）条：
+
+- `model`（默认）：调用 Solon AI `RerankingModel` 对 query/文档对打分后按相关度倒序，并做**自适应裁剪**：
+  低于 `RAG_RERANK_SCORE_THRESHOLD`（默认 0.4）的丢弃；相邻两条分差 > `RAG_RERANK_SCORE_GAP`（默认 0.2）时截断后续
+  （处理相关度断层）；再受 `topN` 限制；有结果时**至少保留 1 条**
+- `truncate`：不精排，直接取前 topN
+- 未启用（`RAG_RERANK_ENABLED=false`）、未配置 `RAG_RERANK_API_URL`/`RAG_RERANK_MODEL` 或服务不可用时，
+  统一兜底为「召回结果前 topN 截断」，问答链路不中断
 
 #### 关键词检索策略（`mysql-fulltext`，可选）
 
@@ -440,8 +452,8 @@ curl -N -X POST http://localhost:8080/api/rag/chat/stream \
 - 融合公式：`finalScore = vectorWeight × Σ 1/(RRF_K + rank) + keywordWeight × Σ 1/(RRF_K + rank)`，
   RRF_K 固定 60；权重由 `RAG_SEARCH_VECTOR_WEIGHT` / `RAG_SEARCH_KEYWORD_WEIGHT` 配置
   （默认 `0.6` / `0.4`，原始权重不归一化）
-- 两来源各自检索 `limit × RAG_SEARCH_CANDIDATE_MULTIPLIER`（默认 3 倍）条候选，
-  融合后取相关度前 limit；两来源均返回父块级命中，按父块 id 对齐，融合分 ROUND 保留 4 位小数
+- 两来源各自检索 topK（= limit）条候选，融合后取相关度前 limit；
+  两来源均返回父块级命中，按父块 id 对齐，融合分 ROUND 保留 4 位小数
 - `similarityThreshold` 原样透传（向量侧为相似度阈值，关键词侧为相关度下限）
 - 任一来源检索失败（如 Milvus/MySQL 暂不可用）时降级：仅用另一来源结果，混合检索仍可用
 
@@ -460,7 +472,15 @@ curl -N -X POST http://localhost:8080/api/rag/chat/stream \
 | `RAG_SEARCH_STRATEGY` | `parent-child` | 检索策略标识（`RagRetrievalStrategy#name()`）；可选 `parent-child`（默认，父子分段检索）/ `mysql-fulltext`（关键词全文检索）/ `hybrid-rrf`（向量 + 关键词 RRF 融合） |
 | `RAG_SEARCH_VECTOR_WEIGHT` | `0.6` | 混合检索（`hybrid-rrf`）向量侧 RRF 权重（原始权重，不归一化） |
 | `RAG_SEARCH_KEYWORD_WEIGHT` | `0.4` | 混合检索（`hybrid-rrf`）关键词侧 RRF 权重 |
-| `RAG_SEARCH_CANDIDATE_MULTIPLIER` | `3` | 混合检索候选倍数：各来源候选条数 = limit × 倍数 |
+| `RAG_SEARCH_TOP_K` | `20` | 召回阶段保留的结果数（送入重排序的候选条数） |
+| `RAG_SEARCH_TOP_N` | `4` | 重排序后最终保留条数（进 LLM 上下文 / 前端来源数） |
+| `RAG_RERANK_ENABLED` | `true` | 是否启用重排序（未配置地址/模型或调用失败时兜底前 topN 截断） |
+| `RAG_RERANK_STRATEGY` | `model` | 重排序策略：`model`（调重排模型）/ `truncate`（直接截断） |
+| `RAG_RERANK_API_URL` / `RAG_RERANK_MODEL` | 空 | 重排服务地址（OpenAI 兼容完整地址）与模型名 |
+| `RAG_RERANK_API_KEY` / `PROVIDER` / `STANDARD` | 空 | 重排服务密钥 / 方言（空 = OpenAI 兼容）/ 接口规范 |
+| `RAG_RERANK_SCORE_THRESHOLD` | `0.4` | 重排相关性阈值：低于该分数的结果丢弃（有结果时至少保留 1 条） |
+| `RAG_RERANK_SCORE_GAP` | `0.2` | 相邻分数落差截断阈值：相邻分差大于该值时截断后续 |
+| `RAG_RERANK_TIMEOUT_SECONDS` | `30` | 重排请求超时秒数 |
 | `RAG_EMBEDDING_API_URL` | `http://127.0.0.1:11434/api/embed` | 嵌入服务地址（Ollama 用完整地址） |
 | `RAG_EMBEDDING_MODEL` | `bge-m3:latest` | 嵌入模型 |
 | `RAG_EMBEDDING_PROVIDER` / `STANDARD` | `ollama` | 嵌入方言（空 = 默认 openai） |

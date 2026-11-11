@@ -1,8 +1,10 @@
 package com.example.ai.rag.service;
 
+import com.example.ai.rag.config.RagProperties;
 import com.example.ai.rag.dto.SearchHit;
 import com.example.ai.rag.retrieval.RagRetrievalStrategy;
 import com.example.ai.rag.retrieval.RagRetrievalStrategyResolver;
+import com.example.ai.rag.rerank.RagRerankService;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.chat.message.ChatMessage;
@@ -15,7 +17,8 @@ import java.util.List;
  * RAG 检索与同步问答服务（编排层）
  * <p>
  * 检索实现已抽离为可配置策略 {@link RagRetrievalStrategy}：本服务只负责编排
- * 「策略检索 → 提示词组装 → ChatModel 生成」，不关心检索的具体实现。
+ * 「策略检索（召回 topK）→ 重排序（精排并保留 topN）→ 提示词组装 → ChatModel 生成」，
+ * 不关心检索与重排的具体实现。
  * 策略通过 {@code ai.rag.search.strategy}（环境变量 {@code RAG_SEARCH_STRATEGY}）
  * 配置选择，默认 {@code parent-child}——即父子分段 / Small-to-Big 检索
  * （子块向量检索 → 父块映射，实现见 {@code ParentChildRetrievalStrategy}）。
@@ -28,16 +31,22 @@ import java.util.List;
 public class RagSearchService {
 
     private final RagRetrievalStrategy retrievalStrategy;
+    private final RagRerankService rerankService;
     private final ChatModel chatModel;
     private final RagPromptFactory promptFactory;
+    private final RagProperties.Search searchConfig;
 
     public RagSearchService(RagRetrievalStrategyResolver retrievalResolver,
+                            RagRerankService rerankService,
                             ChatModel chatModel,
-                            RagPromptFactory promptFactory) {
+                            RagPromptFactory promptFactory,
+                            RagProperties ragProperties) {
         // 启动时按配置选定策略（配置错误在此快速失败）
         this.retrievalStrategy = retrievalResolver.resolve();
+        this.rerankService = rerankService;
         this.chatModel = chatModel;
         this.promptFactory = promptFactory;
+        this.searchConfig = ragProperties.getSearch();
     }
 
     /**
@@ -56,19 +65,23 @@ public class RagSearchService {
 
     /**
      * RAG 问答（同步）：检索增强生成
-     * 策略检索 → 命中内容进 LLM 上下文 → 系统提示词（智能客服）
+     * 策略检索（召回 topK）→ 重排序（精排并保留 topN，未启用/不可用兜底截断）
+     * → 命中内容进 LLM 上下文 → 系统提示词（智能客服）
      * + 自定义用户提示词模版 → ChatModel 生成回答
      *
      * @param question            用户问题
-     * @param limit               检索条数上限（&lt;=0 时用策略默认值）
+     * @param limit               检索条数上限（&lt;=0 时用配置的召回 topK）
      * @param similarityThreshold 相似度阈值（可选；null 或非正数时用策略默认值）
      * @return AI 回答文本
      */
     public String ask(String question, int limit, Double similarityThreshold) throws IOException {
-        List<SearchHit> context = retrievalStrategy.retrieve(question, limit, similarityThreshold);
+        int recall = limit > 0 ? limit : searchConfig.getTopK();
+        List<SearchHit> recalled = retrievalStrategy.retrieve(question, recall, similarityThreshold);
+        List<SearchHit> context = rerankService.rerank(question, recalled);
 
-        log.info("[RAG Ask] question={} strategy={} contextSize={}",
-                question, retrievalStrategy.name(), context.size());
+        log.info("[RAG Ask] question={} strategy={} recalled={} topN={} contextSize={}",
+                question, retrievalStrategy.name(), recalled.size(),
+                searchConfig.getTopN(), context.size());
 
         ChatMessage user = promptFactory.renderUserMessage(question, context);
         try {

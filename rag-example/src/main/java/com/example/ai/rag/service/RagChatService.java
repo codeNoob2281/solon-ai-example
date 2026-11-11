@@ -6,6 +6,7 @@ import com.example.ai.rag.dto.SearchHit;
 import com.example.ai.rag.entity.KbDocument;
 import com.example.ai.rag.retrieval.RagRetrievalStrategy;
 import com.example.ai.rag.retrieval.RagRetrievalStrategyResolver;
+import com.example.ai.rag.rerank.RagRerankService;
 import com.example.ai.rag.storage.KnowledgeBaseStore;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +23,8 @@ import java.util.*;
  * RAG 流式问答服务（编排层）
  * <p>
  * 链路：检索门控（消息长度区间 [min-question-chars, max-question-chars]，区间外跳过检索，
- * 每问独立检索、无会话记忆）→ 策略检索 → 来源解析（documentId 去重 → 批查
+ * 每问独立检索、无会话记忆）→ 策略检索（召回 topK）→ 重排序（精排并保留 topN；
+ * 未启用/服务不可用兜底截断）→ 来源解析（documentId 去重 → 批查
  * kb_document → label=basename(source)，回退 title，再兜底"未命名文档"）→
  * ChatModel 流式生成（{@code Flux<ChatEvent>}，提示词与同步问答共用
  * {@link RagPromptFactory}）。
@@ -35,24 +37,22 @@ import java.util.*;
 @Service
 public class RagChatService {
 
-    /**
-     * 检索条数上限（与前端展示的来源数上限一致；相似度阈值用策略默认 0.4）
-     */
-    private static final int RETRIEVAL_LIMIT = 4;
-
     private final RagRetrievalStrategy retrievalStrategy;
+    private final RagRerankService rerankService;
     private final ChatModel chatModel;
     private final RagPromptFactory promptFactory;
     private final KnowledgeBaseStore knowledgeBaseStore;
     private final RagProperties.Search searchConfig;
 
     public RagChatService(RagRetrievalStrategyResolver retrievalResolver,
+                          RagRerankService rerankService,
                           ChatModel chatModel,
                           RagPromptFactory promptFactory,
                           KnowledgeBaseStore knowledgeBaseStore,
                           RagProperties ragProperties) {
         // 启动时按配置选定策略（配置错误在此快速失败）
         this.retrievalStrategy = retrievalResolver.resolve();
+        this.rerankService = rerankService;
         this.chatModel = chatModel;
         this.promptFactory = promptFactory;
         this.knowledgeBaseStore = knowledgeBaseStore;
@@ -76,11 +76,13 @@ public class RagChatService {
                     searchConfig.getMinQuestionChars(), searchConfig.getMaxQuestionChars(),
                     abbreviate(question, 80));
         }
-        List<SearchHit> hits = gated ? Collections.emptyList()
-                : retrievalStrategy.retrieve(question, RETRIEVAL_LIMIT, null);
+        List<SearchHit> recalled = gated ? Collections.emptyList()
+                : retrievalStrategy.retrieve(question, searchConfig.getTopK(), null);
+        List<SearchHit> hits = rerankService.rerank(question, recalled);
         List<KbSourceItem> sources = resolveSources(hits);
-        log.info("[RAG Chat] question={} strategy={} hits={} sources={} gated={}",
-                abbreviate(question, 80), retrievalStrategy.name(), hits.size(), sources.size(), gated);
+        log.info("[RAG Chat] question={} strategy={} recalled={} topK={} hits={} topN={} sources={} gated={}",
+                abbreviate(question, 80), retrievalStrategy.name(), recalled.size(),
+                searchConfig.getTopK(), hits.size(), searchConfig.getTopN(), sources.size(), gated);
 
         ChatMessage user = promptFactory.renderUserMessage(question, hits);
         // 系统提示词走 systemPrompt()，由框架统一组装为 System Message

@@ -1,6 +1,7 @@
 package com.example.ai.rag.config;
 
 import com.example.ai.rag.retrieval.RagRetrievalStrategy;
+import com.example.ai.rag.rerank.RagRerankStrategy;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -13,7 +14,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   <li>milvus：Milvus 连接（对应 milvus-sdk-java 的 {@code io.milvus.v2.client.ConnectConfig}）</li>
  *   <li>repository：知识库 Collection 名（子块向量集合，含 parent_id 独立字段）</li>
  *   <li>splitter：父子分段参数（父块存 MySQL / 子块存 Milvus，均用 TokenSizeTextSplitter）</li>
- *   <li>search：检索策略选择（{@link RagRetrievalStrategy} 实现标识，默认父子分段检索）</li>
+ *   <li>search：检索策略选择（{@link RagRetrievalStrategy} 实现标识，默认父子分段检索）、
+ *       召回 topK 与最终 topN</li>
+ *   <li>rerank：重排序（检索召回 topK 后调用重排序模型精排，最终保留 topN；未启用/不可用兜底截断）</li>
  *   <li>ingestion：文档并行入库线程池参数（任务粒度 = 单个文档）</li>
  * </ul>
  * application.yml 中的 ${RAG_*:默认值} 占位符优先从 .env（经 EnvFileLoader）或系统环境变量解析。
@@ -27,6 +30,7 @@ public class RagProperties {
     private Repository repository = new Repository();
     private Splitter splitter = new Splitter();
     private Search search = new Search();
+    private Rerank rerank = new Rerank();
     private Ingestion ingestion = new Ingestion();
 
     /**
@@ -120,6 +124,18 @@ public class RagProperties {
         private String strategy = RagRetrievalStrategy.DEFAULT_STRATEGY;
 
         /**
+         * 召回阶段保留的结果数（送入重排序的候选条数），默认 20；
+         * 重排序未启用或不可用时，最终结果即为该列表的前 topN 条
+         */
+        private int topK = 20;
+
+        /**
+         * 重排序后最终保留的结果数（进入 LLM 上下文 / 前端展示的来源数上限；
+         * 相似度阈值用策略默认 0.4），默认 4
+         */
+        private int topN = 4;
+
+        /**
          * 混合检索（strategy = hybrid-rrf）向量侧权重，RRF 加权融合用（原始权重，不归一化）
          */
         private double vectorWeight = 0.6;
@@ -128,12 +144,6 @@ public class RagProperties {
          * 混合检索（strategy = hybrid-rrf）关键词侧权重
          */
         private double keywordWeight = 0.4;
-
-        /**
-         * 混合检索（strategy = hybrid-rrf）候选倍数：各来源候选条数 = limit × 该倍数，
-         * RRF 需要更大的候选池做跨来源重排，默认 3
-         */
-        private int candidateMultiplier = 3;
 
         /**
          * 检索门控：用户消息长度下限（字符数，含）。短于该值的消息不做知识库检索，
@@ -146,6 +156,52 @@ public class RagProperties {
          * 不做知识库检索，避免嵌入与检索开销被无效输入浪费，默认 1200
          */
         private int maxQuestionChars = 1200;
+    }
+
+    /**
+     * 重排序配置：检索召回 topK 后调用重排序模型（Solon AI {@code RerankingModel}）精排，
+     * 最终保留 topN。未启用、未配置 api-url/model 或调用失败时，编排层兜底为「前 topN 截断」。
+     */
+    @Data
+    public static class Rerank {
+        /** 是否启用重排序（默认 true；未配置 api-url/model 时不生效，等价于截断） */
+        private boolean enabled = true;
+
+        /**
+         * 重排序策略标识（对应 {@link RagRerankStrategy#name()}）：
+         * model（默认，调用重排序模型）/ truncate（直接前 topN 截断）；未知标识启动时快速失败
+         */
+        private String strategy = RagRerankStrategy.NAME_MODEL;
+
+        /** 重排序 API 地址（OpenAI 兼容完整地址，如 https://api.siliconflow.cn/v1/rerank） */
+        private String apiUrl = "";
+
+        /** 重排序 API 密钥 */
+        private String apiKey = "";
+
+        /** 服务提供方（匹配 RerankingDialect；dashscope 等，留空走 OpenAI 兼容默认方言） */
+        private String provider = "";
+
+        /** 接口规范（4.0 起，优先于 provider 参与方言匹配） */
+        private String standard = "";
+
+        /** 重排序模型名称（如 BAAI/bge-reranker-v2-m3、gte-rerank） */
+        private String model = "";
+
+        /**
+         * 重排相关性阈值（仅 {@code model} 策略生效）：低于该分数的结果丢弃，默认 0.4；
+         * 有结果时至少保留 1 条（即使全部低于阈值）
+         */
+        private double scoreThreshold = 0.4;
+
+        /**
+         * 相邻分数落差截断阈值（仅 {@code model} 策略生效）：重排结果按分数倒序后，
+         * 相邻两条分差大于该值时截断后续（默认 0.2），用于处理相关度断层
+         */
+        private double scoreGap = 0.2;
+
+        /** 重排序请求超时秒数（<=0 时用框架默认 120s） */
+        private int timeoutSeconds = 30;
     }
 
     /**
