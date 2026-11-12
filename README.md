@@ -2,6 +2,22 @@
 
 本项目主要用于**探索 Spring Boot 2.x + Solon AI 实现 Java 语言的 Agent 项目落地实践**，提供一些简单的示例代码，方便快速上手和二次开发。
 
+## 环境变量同步脚本（`scripts/sync_env.py`）
+
+以 `.env.example` 为唯一键模板同步 `.env`，避免两边键集合漂移（`application.yml` 的 `${KEY:默认值}` 占位符要求两个文件同键）：
+
+- **已存在不覆盖**：`.env` 里已有的键保留原有值，只同步键集合，不覆盖你填的真实配置；
+- **不存在则添加**：`.env.example` 有、`.env` 没有的键追加到 `.env` 末尾（带示例里的注释说明）；
+- **多余键删除**：`.env` 有、`.env.example` 没有的键连同其上方注释块一起删除。
+
+```bash
+python scripts/sync_env.py             # 直接按示例同步并改写 .env
+python scripts/sync_env.py --dry-run   # 只打印变更清单与 diff，不写文件
+python scripts/sync_env.py --check     # 只检查是否已同步（不一致时退出码 1，适合 CI）
+```
+
+说明：只识别未注释的 `KEY=VALUE` 行（`# KEY=VALUE` 视为注释，不参与同步，注释掉的备选值不会被误删）；保留原有注释、空行与键顺序；自动沿用目标文件换行符；可用 `--source/--target` 指定其他文件。新增 `${KEY}` 占位符时，先写进 `.env.example`，再跑一次脚本即可让 `.env` 跟上。
+
 ## 技术栈
 
 - **Spring Boot**: 2.7.18
@@ -23,6 +39,7 @@ solon-ai-example/
 ├── pom.xml                         # 父 POM（聚合模块）
 ├── .env                            # 环境变量（项目根目录，不提交）
 ├── .env.example                    # 环境变量模板（提交）
+├── scripts/sync_env.py             # .env 键集合同步脚本（按 .env.example 补缺删余，见文首「环境变量同步脚本」）
 ├── frontend/                       # 统一前端（React 19 + Vite，项目根目录：npm run dev 5173（/api 代理）/ npm run build 产物 dist，前后端分离）
 ├── llm-core/                       # Starter：Solon AI 自动装配
 │   ├── pom.xml

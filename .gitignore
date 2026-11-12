@@ -25,6 +25,10 @@ node_modules/
 frontend/dist/
 npm-install.log
 
+# Python（scripts/ 下的辅助脚本运行产生的缓存，不提交）
+__pycache__/
+*.py[cod]
+
 # 操作系统
 .DS_Store
 Thumbs.db
