@@ -1,6 +1,7 @@
 package com.example.ai.agent.controller;
 
 import com.example.ai.agent.dto.ChatStreamRequest;
+import com.example.ai.agent.support.ChatModelOptionsSupport;
 import com.example.ai.core.ChatModelResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.agent.AgentEvent;
@@ -8,7 +9,6 @@ import org.noear.solon.ai.agent.AgentSession;
 import org.noear.solon.ai.agent.react.ReActAgent;
 import org.noear.solon.ai.agent.react.ReActOptionsAmend;
 import org.noear.solon.ai.agent.session.InMemoryAgentSession;
-import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.ui.aisdk.AiSdkStreamWrapper;
 import org.noear.solon.web.sse.SseEvent;
 import org.springframework.http.MediaType;
@@ -127,7 +127,8 @@ public class AgentChatController {
 
         // 模型切换：未指定 modelId → 直接用默认 ChatModel（.env 装配，即聊天页「默认」）；
         // 指定则按模型配置解析，解析失败按协议错误帧回包（此时继续用默认模型会造成静默串模型）
-        ChatModelResolver.ResolvedChatModel resolved = resolveChatModel(request);
+        ChatModelResolver.ResolvedChatModel resolved = ChatModelOptionsSupport.resolve(
+                chatModelResolverProvider, request.getModelId(), request.getReasoningLevel());
         if (resolved == null && trimToNull(request.getModelId()) != null) {
             sendPayload(emitter, "{\"type\":\"error\",\"errorText\":\"所选模型不可用（可能已被删除或禁用），请重新选择\"}");
             sendPayload(emitter, "{\"type\":\"finish\",\"finishReason\":\"error\"}");
@@ -136,7 +137,8 @@ public class AgentChatController {
             return emitter;
         }
 
-        Consumer<ReActOptionsAmend> optionsAdjustor = buildOptionsAdjustor(resolved);
+        Consumer<ReActOptionsAmend> optionsAdjustor = ChatModelOptionsSupport.optionsAdjustor(
+                resolved, chatAgent.getModel());
         Flux<AgentEvent> agentEvents = chatAgent.prompt(userText).session(session)
                 .options(optionsAdjustor).stream();
         Flux<SseEvent> sseEvents = aiSdkWrapper.toAiSdkAgentStream(agentEvents, metadata);
@@ -158,71 +160,6 @@ public class AgentChatController {
         emitter.onTimeout(disposable::dispose);
 
         return emitter;
-    }
-
-    /**
-     * 解析本次请求使用的模型
-     * <ul>
-     *   <li>未指定 modelId：不需要覆盖模型，返回 null（继续走默认 ChatModel）；</li>
-     *   <li>指定 modelId：由 {@link ChatModelResolver} 解析（modelId 非法 / 模型禁用 → null，
-     *       由调用方按协议错误帧回包）；</li>
-     *   <li>未引入模型配置模块（无 {@link ChatModelResolver} Bean）时按「模型不可用」处理。</li>
-     * </ul>
-     */
-    private ChatModelResolver.ResolvedChatModel resolveChatModel(ChatStreamRequest request) {
-        String modelId = trimToNull(request.getModelId());
-        if (modelId == null) {
-            return null;
-        }
-        ChatModelResolver resolver = chatModelResolverProvider.getIfAvailable();
-        if (resolver == null) {
-            log.warn("[Chat] 未装配 ChatModelResolver（model-example），无法切换模型: modelId={}", modelId);
-            return null;
-        }
-        return resolver.resolve(modelId, trimToNull(request.getReasoningLevel()));
-    }
-
-    /**
-     * 构造本次请求的选项修正器（每次都返回非 null，用于把上一轮的模型 / 推理参数清干净）
-     * <p>
-     * 背景：{@code ReActRequest.init()} 在续接同一 {@code AgentSession} 时会从上轮 trace
-     * <b>拷贝</b> options，上轮设置的 chatModel / reasoning_effort 会残留。因此这里对每次请求都显式
-     * 覆盖全部三项，避免「这一轮选默认，却沿用了上一轮选的模型」这类串档问题。
-     * <ul>
-     *   <li>chatModel：命中模型配置 → 用该模型；否则回落 Agent 默认模型（.env 装配）；</li>
-     *   <li>推理档位 apiValue 为空 → 移除 thinking / reasoning_effort（保持供应商默认行为）；</li>
-     *   <li>apiValue 为 {@code off} → 关闭思考（见下方「双重下发」说明）；</li>
-     *   <li>其余 → 作为 {@code reasoning_effort} 下发（具体写出的字段由 Solon AI 按模型归一化）。</li>
-     * </ul>
-     * <p>
-     * 「关闭」为何要下发两次：{@code thinking(false)} 由 Solon AI 按<b>已知模型族</b>
-     * （qwen/deepseek/glm/kimi/minimax 等）映射成 {@code enable_thinking} / {@code thinking.type}；
-     * 未知模型（如 hy4-preview）会走 {@code ThinkingSwitchWire.NONE} 分支静默不写出，
-     * 思考照样吃满额度导致正文为空。因此额外用 {@code optionSet} 透传
-     * {@code enable_thinking=false} 作为兜底（忽略未知字段的网关无副作用）。
-     */
-    private Consumer<ReActOptionsAmend> buildOptionsAdjustor(ChatModelResolver.ResolvedChatModel resolved) {
-        String reasoningValue = trimToNull(resolved == null ? null : resolved.getReasoningApiValue());
-        ChatModel selected = resolved == null ? null : resolved.getChatModel();
-        ChatModel fallback = chatAgent.getModel();
-        boolean disableThinking = reasoningValue != null && "off".equalsIgnoreCase(reasoningValue);
-
-        return adjustor -> {
-            ChatModel target = selected != null ? selected : fallback;
-            if (target != null) {
-                adjustor.chatModel(target);
-            }
-            // 先清空上轮残留，再按本轮档位写入
-            adjustor.thinking(null);
-            adjustor.reasoning_effort(null);
-            adjustor.optionRemove("enable_thinking");
-            if (disableThinking) {
-                adjustor.thinking(false);
-                adjustor.optionSet("enable_thinking", false);
-            } else if (reasoningValue != null) {
-                adjustor.reasoning_effort(reasoningValue);
-            }
-        };
     }
 
     /**

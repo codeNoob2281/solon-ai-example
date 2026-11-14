@@ -12,6 +12,10 @@ import {
   ReasoningTrigger,
 } from '@/components/ai-elements/reasoning';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import {
+  ChatModelSelector,
+  useChatModelSelection,
+} from '@/components/ai-elements/chat-model-selector';
 
 /**
  * RAG 问答页（父子分段检索增强，AI SDK 协议）
@@ -155,6 +159,9 @@ function ChatPanel({ chatId, onNewChat }: { chatId: string; onNewChat: () => voi
   const busy = status === 'submitted' || status === 'streaming';
   const listRef = useRef<HTMLDivElement>(null);
 
+  // 模型与思考档位选择（三页共用 hook；「默认」= 走后端 .env）
+  const model = useChatModelSelection();
+
   useEffect(() => {
     const el = listRef.current;
     if (el) {
@@ -169,7 +176,10 @@ function ChatPanel({ chatId, onNewChat }: { chatId: string; onNewChat: () => voi
       return;
     }
     setInput('');
-    sendMessage({ text });
+    // 本轮已按当前配置发出，切换提示不再需要
+    model.clearSwitchNotice();
+    // modelId / reasoningLevel 随请求体下发（后端 RagChatStreamRequest 读取）
+    sendMessage({ text }, { body: model.toRequestBody() });
   };
 
   // 流式期间最后一条 assistant 消息显示生成中状态
@@ -212,6 +222,9 @@ function ChatPanel({ chatId, onNewChat }: { chatId: string; onNewChat: () => voi
         </div>
       ) : null}
 
+      {/* 切换提示：消息区下方灰字（只影响下一轮，发送后自动消失） */}
+      {model.switchNotice ? <div className="chat-switch-notice">{model.switchNotice}</div> : null}
+
       <form className="chat-input" onSubmit={submit}>
         <input
           value={input}
@@ -219,6 +232,8 @@ function ChatPanel({ chatId, onNewChat }: { chatId: string; onNewChat: () => voi
           placeholder={busy ? '生成中…' : '输入问题，回车发送'}
           autoFocus
         />
+        {/* 模型 + 思考深度：共用模型选择器（外层按钮直接显示当前模型与档位） */}
+        <ChatModelSelector state={model} disabled={busy} />
         {busy ? (
           <button type="button" className="btn stop" onClick={() => stop()}>
             停止

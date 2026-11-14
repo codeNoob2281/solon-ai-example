@@ -11,6 +11,7 @@ import com.example.ai.rag.storage.KnowledgeBaseStore;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.chat.ChatModel;
+import org.noear.solon.ai.chat.ChatRequestDesc;
 import org.noear.solon.ai.chat.event.ChatEvent;
 import org.noear.solon.ai.chat.message.ChatMessage;
 import org.springframework.stereotype.Service;
@@ -66,8 +67,12 @@ public class RagChatService {
      * 错误帧回包；进入事件流后由 {@code AiSdkStreamWrapper} 负责错误收口。
      *
      * @param question 用户问题（最后一条用户消息文本）
+     * @param overrideModel 本次请求指定模型（可空：空则用默认 ChatModel）
+     * @param reasoningApiValue 推理档位对应的 API 参数值（可空：空则不下发推理参数；
+     *                          {@code off} 表示关闭思考）
      */
-    public RagChatStream startStream(String question) throws IOException {
+    public RagChatStream startStream(String question, ChatModel overrideModel, String reasoningApiValue)
+            throws IOException {
         boolean gated = !shouldRetrieve(question);
         if (gated) {
             // 门控跳过：单独打印拦截原因（消息长度与配置区间），便于观察门控命中情况
@@ -86,9 +91,21 @@ public class RagChatService {
 
         ChatMessage user = promptFactory.renderUserMessage(question, hits);
         // 系统提示词走 systemPrompt()，由框架统一组装为 System Message
-        Flux<ChatEvent> events = chatModel.prompt(user)
-                .systemPrompt(promptFactory.systemPrompt())
-                .stream();
+        ChatModel model = overrideModel != null ? overrideModel : this.chatModel;
+        ChatRequestDesc request = model.prompt(user).systemPrompt(promptFactory.systemPrompt());
+        // 推理档位：off → 关闭思考（双重下发兜底未知模型）；其余 → reasoning_effort 下发
+        String reasoningValue = trimToNull(reasoningApiValue);
+        if (reasoningValue != null) {
+            request.options(options -> {
+                if ("off".equalsIgnoreCase(reasoningValue)) {
+                    options.thinking(false);
+                    options.optionSet("enable_thinking", false);
+                } else {
+                    options.reasoning_effort(reasoningValue);
+                }
+            });
+        }
+        Flux<ChatEvent> events = request.stream();
         return new RagChatStream(events, sources);
     }
 
@@ -169,6 +186,17 @@ public class RagChatService {
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    /**
+     * 去掉首尾空白；空串/null 统一返回 null（推理档位/模型的「未指定」语义）
+     */
+    private static String trimToNull(String text) {
+        if (text == null) {
+            return null;
+        }
+        String trimmed = text.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private String abbreviate(String text, int maxLength) {

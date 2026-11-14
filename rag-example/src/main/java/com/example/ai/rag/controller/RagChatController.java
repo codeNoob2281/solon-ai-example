@@ -1,10 +1,13 @@
 package com.example.ai.rag.controller;
 
+import com.example.ai.core.ChatModelResolver;
 import com.example.ai.rag.dto.RagChatStreamRequest;
 import com.example.ai.rag.service.RagChatService;
 import lombok.extern.slf4j.Slf4j;
+import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.ui.aisdk.AiSdkStreamWrapper;
 import org.noear.solon.web.sse.SseEvent;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -74,6 +77,12 @@ public class RagChatController {
     private RagChatService ragChatService;
 
     /**
+     * 模型解析器（llm-core 契约；model-example 提供实现，未引入时为空 → 只走默认模型）
+     */
+    @Resource
+    private ObjectProvider<ChatModelResolver> chatModelResolverProvider;
+
+    /**
      * 流式问答端点（AI SDK 协议 SSE）
      *
      * @param request  useChat 请求体（完整消息历史，取最后一条用户消息）
@@ -96,10 +105,31 @@ public class RagChatController {
             return emitter;
         }
 
+        // 模型切换：未指定 modelId → 默认 ChatModel；指定但解析失败 → 协议错误帧回包
+        // （此时若继续用默认模型会造成静默串模型，必须显式失败）
+        String modelId = trimToNull(request.getModelId());
+        ChatModel effectiveModel = null;
+        String reasoningApiValue = null;
+        if (modelId != null) {
+            ChatModelResolver resolver = chatModelResolverProvider.getIfAvailable();
+            ChatModelResolver.ResolvedChatModel resolved = resolver == null
+                    ? null : resolver.resolve(modelId, trimToNull(request.getReasoningLevel()));
+            if (resolved == null) {
+                log.warn("[RAG Chat] 所选模型不可用: modelId={}", modelId);
+                sendPayload(emitter, "{\"type\":\"error\",\"errorText\":\"所选模型不可用（可能已被删除或禁用），请重新选择\"}");
+                sendPayload(emitter, "{\"type\":\"finish\",\"finishReason\":\"error\"}");
+                sendPayload(emitter, "[DONE]");
+                emitter.complete();
+                return emitter;
+            }
+            effectiveModel = resolved.getChatModel();
+            reasoningApiValue = resolved.getReasoningApiValue();
+        }
+
         // 检索与来源解析（同步完成，发生在模型流开始之前）
         RagChatService.RagChatStream stream;
         try {
-            stream = ragChatService.startStream(userText);
+            stream = ragChatService.startStream(userText, effectiveModel, reasoningApiValue);
         } catch (Exception e) {
             // 检索失败（Milvus/嵌入服务不可用等）：以协议错误帧回包，前端错误条可感知
             log.error("[RAG Chat] 检索失败: question={}", abbreviate(userText, 80), e);
@@ -179,5 +209,13 @@ public class RagChatController {
             return text;
         }
         return text.substring(0, maxLength) + "...";
+    }
+
+    private static String trimToNull(String text) {
+        if (text == null) {
+            return null;
+        }
+        String trimmed = text.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

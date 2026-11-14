@@ -48,10 +48,15 @@ import {
 import {
   PromptInput,
   type PromptInputMessage,
+  PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
 } from '@/components/ai-elements/prompt-input';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import {
+  ChatModelSelector,
+  useChatModelSelection,
+} from '@/components/ai-elements/chat-model-selector';
 import { cjk } from '@streamdown/cjk';
 import { code } from '@streamdown/code';
 import { math } from '@streamdown/math';
@@ -181,7 +186,7 @@ function hasVisibleAnswer(turn: Turn): boolean {
  * 流式读取自定义 SSE：帧以空行分隔，载荷为 data:<json>（终帧 [DONE] 哨兵）。
  */
 async function streamTravel(
-  body: { id: string; message: string },
+  body: { id: string; message: string; modelId?: string; reasoningLevel?: string },
   onEvent: (event: StreamEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -594,6 +599,9 @@ export default function TravelDemoPage() {
 
   const busy = resuming || turns.some(turn => turn.status === 'streaming');
 
+  // 模型与思考档位选择（三页共用 hook；「默认」= 走后端 .env）
+  const model = useChatModelSelection();
+
   // 组件卸载（切换菜单）时中断进行中的流，后端随之断开并停止 Agent
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -847,7 +855,11 @@ export default function TravelDemoPage() {
   const resumeStream = () => {
     const controller = new AbortController();
     abortRef.current = controller;
-    return streamTravel({ id: conversationId, message: '' }, handleEvent, controller.signal)
+    return streamTravel(
+      { id: conversationId, message: '', ...model.toRequestBody() },
+      handleEvent,
+      controller.signal,
+    )
       .catch((err: unknown) => {
         if ((err as Error)?.name !== 'AbortError') {
           updateSession(prev => ({
@@ -919,7 +931,11 @@ export default function TravelDemoPage() {
 
     const controller = new AbortController();
     abortRef.current = controller;
-    streamTravel({ id: conversationId, message: text }, handleEvent, controller.signal)
+    streamTravel(
+      { id: conversationId, message: text, ...model.toRequestBody() },
+      handleEvent,
+      controller.signal,
+    )
       .catch((err: unknown) => {
         // 用户主动停止：保留已生成的过程与部分结果
         if ((err as Error)?.name !== 'AbortError') {
@@ -1059,20 +1075,26 @@ export default function TravelDemoPage() {
       {/* 任务列表：固定在聊天输入框上方（可折叠/展开） */}
       {latestPlan ? <PlanPanel plan={latestPlan} /> : null}
 
+      {/* 切换提示：输入框上方灰字（只影响下一轮，发送后自动消失） */}
+      {model.switchNotice ? <div className="chat-switch-notice">{model.switchNotice}</div> : null}
+
       <PromptInput onSubmit={submit} className="travel-prompt">
         <PromptInputTextarea
           value={input}
           onChange={event => setInput(event.target.value)}
           placeholder={busy ? 'Agent 工作中…' : '输入出行需求，或回答 Agent 的追问'}
           rows={1}
-          className="min-h-11 pr-12"
+          className="min-h-11"
         />
-        <PromptInputSubmit
-          status={busy ? 'streaming' : 'ready'}
-          onStop={stop}
-          disabled={busy ? undefined : !input.trim()}
-          className="absolute bottom-1 right-1"
-        />
+        {/* 第二行：右下角模型切换（无背景）+ 发送/停止按钮，参考 dsh 对话框布局 */}
+        <PromptInputFooter className="justify-end gap-2">
+          <ChatModelSelector state={model} disabled={busy} variant="ghost" />
+          <PromptInputSubmit
+            status={busy ? 'streaming' : 'ready'}
+            onStop={stop}
+            disabled={busy ? undefined : !input.trim()}
+          />
+        </PromptInputFooter>
       </PromptInput>
 
       {/* 执行统计：对话框下方左侧展示轮次 / 步骤 */}

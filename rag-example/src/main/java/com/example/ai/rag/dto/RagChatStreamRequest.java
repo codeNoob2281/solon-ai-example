@@ -16,7 +16,9 @@ import java.util.List;
  *       "parts": [ { "type": "text", "text": "你好" } ] }
  *   ],
  *   "trigger": "submit-message",
- *   "messageId": "..."
+ *   "messageId": "...",
+ *   "modelId": "12",            // 可选：模型配置 id（缺省 = 走 .env 默认模型）
+ *   "reasoningLevel": "high"    // 可选：推理档位 key（缺省 = 不下发推理参数）
  * }
  * }</pre>
  * 与 agent-example 的 ChatStreamRequest 同构（各自模块内维护，不跨模块依赖）；
@@ -34,6 +36,16 @@ public class RagChatStreamRequest {
      * 消息列表（完整对话历史，后端只取最后一条用户消息作为本轮检索与生成输入）
      */
     private List<UIMessage> messages;
+
+    /**
+     * 模型配置 id（model-example 的 mc_model.id；空表示「默认」，走 .env 装配的 ChatModel）
+     */
+    private String modelId;
+
+    /**
+     * 推理档位 key（模型配置里的 reasoningLevels[].key；空表示不覆盖推理参数）
+     */
+    private String reasoningLevel;
 
     /**
      * AI SDK UIMessage：role + parts 结构

@@ -226,6 +226,42 @@ body {
   opacity: 0.55;
 }
 
+/* 无背景变体：用于输入框第二行右下角（参考 dsh 对话框，仅文字 + 折叠箭头，无描边/底色） */
+.model-trigger--ghost {
+  height: 30px;
+  max-width: 240px;
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12.5px;
+}
+
+.model-trigger--ghost:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+}
+
+.model-trigger--ghost .model-trigger-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.model-trigger--ghost .model-trigger-label {
+  max-width: 150px;
+  font-weight: 400;
+}
+
+/* ghost 下思考档位也不带底色，保持整块无背景 */
+.model-trigger--ghost .model-trigger-level {
+  height: auto;
+  padding: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+
 /* 选中项的对勾：未选中时占位隐藏，保持条目左侧对齐一致 */
 .model-check {
   width: 14px;
@@ -562,6 +598,11 @@ body {
 .travel-prompt {
   flex: none;
   margin: 8px 0 0;
+}
+
+/* 输入框容器保留白色卡片背景（两行共用同一底色） */
+.travel-prompt [data-slot="input-group"] {
+  background: var(--card);
 }
 
 /* 用量信息（对话框下方）：本轮 token 用量摘要 + 上下文占用（AI Elements Context 悬浮卡）

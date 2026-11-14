@@ -3,6 +3,8 @@ package com.example.ai.agent.controller;
 import com.alibaba.fastjson2.JSON;
 import com.example.ai.agent.dto.HitlSubmitRequest;
 import com.example.ai.agent.dto.TravelStreamRequest;
+import com.example.ai.agent.support.ChatModelOptionsSupport;
+import com.example.ai.core.ChatModelResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.noear.solon.ai.AiUsage;
 import org.noear.solon.ai.agent.AgentEvent;
@@ -10,6 +12,7 @@ import org.noear.solon.ai.agent.AgentSession;
 import org.noear.solon.ai.agent.react.RunEndEvent;
 import org.noear.solon.ai.agent.react.RunStartEvent;
 import org.noear.solon.ai.agent.react.ReActAgent;
+import org.noear.solon.ai.agent.react.ReActOptionsAmend;
 import org.noear.solon.ai.agent.react.intercept.HITL;
 import org.noear.solon.ai.agent.react.intercept.HITLDecision;
 import org.noear.solon.ai.agent.react.intercept.HITLDecidedEvent;
@@ -29,6 +32,7 @@ import org.noear.solon.ai.agent.trace.Metrics;
 import org.noear.solon.ai.chat.ChatModel;
 import org.noear.solon.ai.chat.event.ChatEvent;
 import org.noear.solon.ai.chat.event.ChatEventType;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -50,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
  * 出行规划工作台流式端点（自定义 Agent 过程事件协议，供前端可视化工作过程）
@@ -110,6 +115,12 @@ public class TravelAgentStreamController {
     private ChatModel chatModel;
 
     /**
+     * 模型解析器（llm-core 契约；model-example 提供实现，未引入时为空 → 只走默认模型）
+     */
+    @Resource
+    private ObjectProvider<ChatModelResolver> chatModelResolverProvider;
+
+    /**
      * 内存会话存储：会话 id -> AgentSession（demo 实现，进程内有效）
      */
     private final Map<String, AgentSession> sessionStore = new ConcurrentHashMap<>();
@@ -128,6 +139,11 @@ public class TravelAgentStreamController {
          * 末次推理（ReasonEndEvent）的输入 token 数 ≈ 运行结束时的上下文占用
          */
         private long contextTokens;
+
+        /**
+         * 本轮实际使用模型的上下文窗口（用于计算占用率；切换模型时随所选模型变化）
+         */
+        private long contextLength;
     }
 
     /**
@@ -144,20 +160,43 @@ public class TravelAgentStreamController {
         String message = request == null ? null : request.getMessage();
         // 允许空 message（HITL 断点续传）
 
+        // 模型切换：未指定 modelId → 默认 ChatModel；指定但解析失败 → 自定义协议错误帧回包
+        // （此时若继续用默认模型会造成静默串模型，必须显式失败）
+        ChatModelResolver.ResolvedChatModel resolved = ChatModelOptionsSupport.resolve(
+                chatModelResolverProvider,
+                request == null ? null : request.getModelId(),
+                request == null ? null : request.getReasoningLevel());
+        if (resolved == null && request != null && trimToNull(request.getModelId()) != null) {
+            Map<String, Object> errorFrame = frame("error");
+            errorFrame.put("message", "所选模型不可用（可能已被删除或禁用），请重新选择");
+            sendPayload(emitter, JSON.toJSONString(errorFrame));
+            sendPayload(emitter, "{\"type\":\"finish\"}");
+            sendPayload(emitter, "[DONE]");
+            emitter.complete();
+            return emitter;
+        }
+
         AgentSession session = resolveSession(sessionKey);
 
-        log.info("[Travel-Stream] sessionKey={}, prompt={}", sessionKey, abbreviate(message, 80));
+        log.info("[Travel-Stream] sessionKey={}, modelId={}, reasoningLevel={}, prompt={}",
+                sessionKey, request == null ? null : request.getModelId(),
+                request == null ? null : request.getReasoningLevel(), abbreviate(message, 80));
 
         // 首帧：回填会话 id（多轮澄清续聊的关联键）
         Map<String, Object> startFrame = frame("start");
         startFrame.put("sessionId", session.getSessionId());
 
-        // 每请求一份的度量状态（末次推理的上下文占用）
+        // 每请求一份的度量状态（末次推理的上下文占用 + 本轮模型上下文窗口）
         StreamState state = new StreamState();
+        state.contextLength = resolveContextLength(resolved);
+
+        // 模型 / 推理档位随每次请求下发（清掉上轮残留，避免续会话串档）
+        Consumer<ReActOptionsAmend> optionsAdjustor = ChatModelOptionsSupport.optionsAdjustor(
+                resolved, travelAgent.getModel());
 
         Flux<String> payloads = Flux.concat(
                 Flux.just(JSON.toJSONString(startFrame)),
-                travelAgent.prompt(message).session(session).stream()
+                travelAgent.prompt(message).session(session).options(optionsAdjustor).stream()
                         // 单事件 → 0..n 帧；concatMapIterable 保证严格按事件顺序出帧
                         .concatMapIterable(event -> toPayloads(event, state)),
                 Flux.just("{\"type\":\"finish\"}", "[DONE]"));
@@ -298,8 +337,19 @@ public class TravelAgentStreamController {
         frame.put("durationMs", metrics.getTotalDuration());
         frame.put("contextTokens",
                 state.contextTokens > 0 ? state.contextTokens : metrics.getPromptTokens());
-        frame.put("contextLength", chatModel.getConfig().getContextLength());
+        frame.put("contextLength", state.contextLength);
         return JSON.toJSONString(frame);
+    }
+
+    /**
+     * 本轮实际使用模型的上下文窗口 token：
+     * 命中模型配置时取该模型的窗口，否则回落到默认 ChatModel 的窗口（与用量面板口径一致）。
+     */
+    private long resolveContextLength(ChatModelResolver.ResolvedChatModel resolved) {
+        if (resolved != null && resolved.getChatModel() != null) {
+            return resolved.getChatModel().getConfig().getContextLength();
+        }
+        return chatModel.getConfig().getContextLength();
     }
 
     /**
